@@ -37,9 +37,10 @@ async def _run_openai_compat(
     messages: list[dict],
     executor: ToolExecutor,
     provider,           # K2Provider or OpenRouterProvider instance
+    system: str = SYSTEM_PROMPT,
 ) -> AsyncIterator[str]:
 
-    history = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+    history = [{"role": "system", "content": system}] + messages
 
     for round_num in range(MAX_TOOL_ROUNDS):
         is_last = round_num == MAX_TOOL_ROUNDS - 1
@@ -114,6 +115,7 @@ async def _run_anthropic(
     messages: list[dict],
     executor: ToolExecutor,
     provider,            # AnthropicProvider instance
+    system: str = SYSTEM_PROMPT,
 ) -> AsyncIterator[str]:
     import anthropic
 
@@ -137,7 +139,7 @@ async def _run_anthropic(
 
         kwargs = dict(
             model=model,
-            system=SYSTEM_PROMPT,
+            system=system,
             messages=history,
             max_tokens=4096,
         )
@@ -170,7 +172,7 @@ async def _run_anthropic(
 
             async with client.messages.stream(
                 model=model,
-                system=SYSTEM_PROMPT,
+                system=system,
                 messages=history,
                 max_tokens=4096,
             ) as stream:
@@ -188,6 +190,31 @@ async def _run_anthropic(
 # Public entry point                                                  #
 # ------------------------------------------------------------------ #
 
+async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
+    """
+    Inject pre-fetched course list into the system prompt so the AI
+    doesn't need to call get_courses() on every message — saves one full
+    K2 round trip.
+    """
+    try:
+        from db.client import get_supabase
+        sb = get_supabase()
+        result = sb.table("enrollments").select(
+            "courses(canvas_course_id, name, course_code)"
+        ).eq("user_id", user_id).execute()
+
+        courses = [
+            f"- {r['courses']['name']} (canvas_course_id: {r['courses']['canvas_course_id']})"
+            for r in result.data if r.get("courses")
+        ]
+        if courses:
+            course_context = "\n## Student's enrolled courses\n" + "\n".join(courses) + "\n"
+            return SYSTEM_PROMPT + course_context
+    except Exception:
+        pass
+    return SYSTEM_PROMPT
+
+
 async def run_chat(
     messages: list[dict],
     user_id: str,
@@ -202,11 +229,14 @@ async def run_chat(
     provider = get_ai_provider()
     executor = ToolExecutor(user_id, school_id, course_id)
 
+    # Pre-inject course list — skips get_courses tool call on first turn
+    system = await _build_system_prompt(user_id, course_id)
+
     provider_name = (config.AI_PROVIDER or "k2").lower()
 
     if provider_name == "anthropic":
-        async for chunk in _run_anthropic(messages, executor, provider):
+        async for chunk in _run_anthropic(messages, executor, provider, system):
             yield chunk
     else:
-        async for chunk in _run_openai_compat(messages, executor, provider):
+        async for chunk in _run_openai_compat(messages, executor, provider, system):
             yield chunk

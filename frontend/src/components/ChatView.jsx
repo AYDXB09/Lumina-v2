@@ -9,21 +9,49 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
-import { streamChat } from "../api.js";
+import { streamChat, fetchSessions, fetchMessages } from "../api.js";
 import ChatMessage from "./ChatMessage.jsx";
 
 const PLACEHOLDER = "Ask me anything about your courses…";
 
 export default function ChatView({ course = null, session = null, onSessionCreated }) {
   const { authFetch } = useAuth();
-  const [messages, setMessages]   = useState([]);    // { role, content }
-  const [input, setInput]         = useState("");
-  const [loading, setLoading]     = useState(false);
-  const [toolStatus, setToolStatus] = useState(null); // "Searching Canvas…"
+  const [messages, setMessages]       = useState([]);
+  const [input, setInput]             = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [toolStatus, setToolStatus]   = useState(null);
   const [streamingText, setStreamingText] = useState("");
-  const bottomRef = useRef(null);
-  const inputRef  = useRef(null);
+  const bottomRef    = useRef(null);
+  const inputRef     = useRef(null);
   const sessionIdRef = useRef(session?.id ?? null);
+
+  // Load last session's messages when course changes
+  useEffect(() => {
+    let cancelled = false;
+    sessionIdRef.current = session?.id ?? null;
+    setMessages([]);
+    setHistoryLoading(true);
+
+    (async () => {
+      try {
+        const { sessions } = await fetchSessions(authFetch, course?.id ?? null);
+        if (cancelled) return;
+        if (sessions?.length > 0) {
+          const last = sessions[0];
+          sessionIdRef.current = last.id;
+          const { messages: msgs } = await fetchMessages(authFetch, last.id);
+          if (!cancelled) setMessages(msgs ?? []);
+        }
+      } catch {
+        // No history — start fresh
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [course?.id]);
 
   // Scroll to bottom whenever messages or streaming text changes
   useEffect(() => {
@@ -112,7 +140,11 @@ export default function ChatView({ course = null, session = null, onSessionCreat
 
       {/* Messages */}
       <div style={styles.messages}>
-        {messages.length === 0 && (
+        {historyLoading ? (
+          <div style={styles.empty}>
+            <p style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>Loading history…</p>
+          </div>
+        ) : messages.length === 0 ? (
           <div style={styles.empty}>
             <p style={styles.emptyTitle}>What are you studying today?</p>
             <p style={styles.emptyHint}>
@@ -121,7 +153,7 @@ export default function ChatView({ course = null, session = null, onSessionCreat
                 : "Ask me about any of your Canvas courses."}
             </p>
           </div>
-        )}
+        ) : null}
 
         {messages.map((m, i) => (
           <ChatMessage key={i} role={m.role} content={m.content} />

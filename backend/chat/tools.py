@@ -118,28 +118,114 @@ class ToolExecutor:
             return json.dumps({"error": f"Tool failed: {str(e)}"})
 
     async def _get_courses(self) -> str:
-        client = await self._get_client()
-        courses = await client.get_courses()
+        """Read from Supabase (already synced) — fast, no Canvas round trip."""
+        from db.client import get_supabase
+        sb = get_supabase()
+        result = sb.table("enrollments").select(
+            "courses(canvas_course_id, name, course_code)"
+        ).eq("user_id", self._user_id).execute()
+
+        courses = [
+            {
+                "canvas_course_id": int(r["courses"]["canvas_course_id"]),
+                "name": r["courses"]["name"],
+                "course_code": r["courses"]["course_code"],
+            }
+            for r in result.data if r.get("courses")
+        ]
         self._courses = courses
         return json.dumps({"courses": courses})
 
     async def _get_assignments(self, canvas_course_id: int | None) -> str:
+        """
+        Check Supabase index_chunks first (fast).
+        Fall back to live Canvas call only if not indexed yet.
+        """
         if not canvas_course_id:
             return json.dumps({"error": "canvas_course_id required"})
+
+        from db.client import get_supabase
+        sb = get_supabase()
+
+        # Find the Supabase course row
+        course_row = sb.table("courses").select("id, name").eq(
+            "canvas_course_id", str(canvas_course_id)
+        ).maybe_single().execute()
+
+        if course_row.data:
+            # Pull assignment chunks from index_chunks (already stored)
+            chunks = sb.table("index_chunks").select(
+                "source_id, metadata, content"
+            ).eq("course_id", course_row.data["id"]).eq(
+                "source_type", "assignment"
+            ).execute()
+
+            if chunks.data:
+                # Deduplicate by source_id, return one entry per assignment
+                seen = {}
+                for c in chunks.data:
+                    sid = c["source_id"]
+                    if sid not in seen:
+                        seen[sid] = {
+                            "id": sid,
+                            "name": c["metadata"].get("title", ""),
+                            "due_at": c["metadata"].get("due_at"),
+                            "url": c["metadata"].get("url", ""),
+                            "description_preview": c["content"][:200],
+                        }
+                assignments = list(seen.values())
+                return json.dumps({
+                    "assignments": assignments,
+                    "canvas_course_id": canvas_course_id,
+                    "course_name": course_row.data["name"],
+                    "source": "cached",
+                })
+
+        # Not indexed yet — fall back to live Canvas call
         client = await self._get_client()
         assignments = await client.get_assignments(canvas_course_id)
-        return json.dumps({"assignments": assignments, "canvas_course_id": canvas_course_id})
+        return json.dumps({"assignments": assignments, "canvas_course_id": canvas_course_id, "source": "live"})
 
     async def _get_announcements(self) -> str:
-        client = await self._get_client()
-        # Use cached course IDs or fetch fresh
-        if not self._courses:
-            self._courses = await client.get_courses()
-        course_ids = [int(c["canvas_course_id"]) for c in self._courses if c.get("canvas_course_id")]
+        """Read announcements from index_chunks (fast)."""
+        from db.client import get_supabase
+        sb = get_supabase()
+
+        # Get all course IDs for this user
+        enrollments = sb.table("enrollments").select(
+            "course_id"
+        ).eq("user_id", self._user_id).execute()
+
+        course_ids = [e["course_id"] for e in enrollments.data]
         if not course_ids:
+            return json.dumps({"announcements": [], "message": "No courses found."})
+
+        chunks = sb.table("index_chunks").select(
+            "metadata, content"
+        ).in_("course_id", course_ids).eq(
+            "source_type", "announcement"
+        ).order("created_at", desc=True).limit(20).execute()
+
+        if chunks.data:
+            announcements = [
+                {
+                    "title": c["metadata"].get("title", ""),
+                    "message": c["content"],
+                    "posted_at": c["metadata"].get("posted_at", ""),
+                }
+                for c in chunks.data
+            ]
+            return json.dumps({"announcements": announcements, "source": "cached"})
+
+        # Fall back to live Canvas if not indexed
+        if not self._courses:
+            await self._get_courses()
+        course_ids_int = [int(c["canvas_course_id"]) for c in self._courses if c.get("canvas_course_id")]
+        if not course_ids_int:
             return json.dumps({"announcements": [], "message": "No active courses found."})
-        announcements = await client.get_announcements(course_ids)
-        return json.dumps({"announcements": announcements})
+        client = await self._get_client()
+        announcements = await client.get_announcements(course_ids_int)
+        return json.dumps({"announcements": announcements, "source": "live"})
 
     async def _search(self, query: str, canvas_course_id: int | None) -> str:
         if not query:
