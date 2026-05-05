@@ -1,15 +1,16 @@
 /**
- * App.jsx — Root component.
+ * App.jsx — root component.
  *
- * Auth gate:
- *   - Loading   → spinner (restoring session from cookie)
- *   - No user   → LoginScreen
- *   - User      → main app (Dashboard placeholder for now)
+ * Auth gate → LoginScreen or main layout.
+ * Main layout: Sidebar (courses) + ChatView (right panel).
  */
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "./contexts/AuthContext.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
+import Sidebar from "./components/Sidebar.jsx";
+import ChatView from "./components/ChatView.jsx";
+import { fetchCourses, syncCourses } from "./api.js";
 
 function LoadingSpinner() {
   return (
@@ -26,66 +27,79 @@ function LoadingSpinner() {
   );
 }
 
-function Dashboard() {
-  const { user, logout } = useAuth();
-  return (
-    <div style={{ padding: "40px", maxWidth: "800px", margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px" }}>
-        <div>
-          <h1 style={{ fontSize: "24px", fontWeight: "700", marginBottom: "4px" }}>
-            ✦ Lumina
-          </h1>
-          <p style={{ color: "var(--color-text-muted)", fontSize: "14px" }}>
-            Welcome, {user?.name}
-          </p>
-        </div>
-        <button
-          onClick={logout}
-          style={{
-            background: "transparent",
-            border: "1px solid var(--color-border)",
-            borderRadius: "8px",
-            color: "var(--color-text-muted)",
-            padding: "8px 16px",
-            fontSize: "13px",
-          }}
-        >
-          Sign out
-        </button>
-      </div>
+function MainLayout() {
+  const { authFetch } = useAuth();
+  const [courses, setCourses]               = useState([]);
+  const [selectedCourse, setSelectedCourse] = useState(null); // null = all courses
+  const [syncing, setSyncing]               = useState(false);
 
-      <div style={{
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius)",
-        padding: "32px",
-        textAlign: "center",
-        color: "var(--color-text-muted)",
-      }}>
-        <p style={{ fontSize: "18px", marginBottom: "8px" }}>🚧 Dashboard coming soon</p>
-        <p style={{ fontSize: "14px" }}>
-          Auth is wired up. Next: Canvas course sync + AI chat.
-        </p>
-        <pre style={{
-          marginTop: "24px",
-          textAlign: "left",
-          background: "var(--color-surface-2)",
-          borderRadius: "8px",
-          padding: "16px",
-          fontSize: "12px",
-          overflow: "auto",
-        }}>
-          {JSON.stringify(user, null, 2)}
-        </pre>
-      </div>
+  // Load courses on mount
+  useEffect(() => {
+    loadCourses();
+  }, []);
+
+  const loadCourses = async () => {
+    try {
+      const data = await fetchCourses(authFetch);
+      setCourses(data.courses ?? []);
+      // Auto-sync if no courses yet
+      if ((data.courses ?? []).length === 0) {
+        handleSync();
+      }
+    } catch (err) {
+      console.error("Failed to load courses:", err);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const data = await syncCourses(authFetch);
+      // Reload after sync
+      await loadCourses();
+    } catch (err) {
+      console.error("Sync failed:", err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div style={styles.layout}>
+      <Sidebar
+        courses={courses}
+        selectedCourse={selectedCourse}
+        onSelectCourse={setSelectedCourse}
+        onSync={handleSync}
+        syncing={syncing}
+      />
+      <main style={styles.main}>
+        <ChatView
+          key={selectedCourse?.id ?? "all"}   // remount on course switch
+          course={selectedCourse}
+        />
+      </main>
     </div>
   );
 }
 
 export default function App() {
   const { user, loading } = useAuth();
-
-  if (loading) return <LoadingSpinner />;
-  if (!user) return <LoginScreen />;
-  return <Dashboard />;
+  if (loading)  return <LoadingSpinner />;
+  if (!user)    return <LoginScreen />;
+  return <MainLayout />;
 }
+
+const styles = {
+  layout: {
+    display: "flex",
+    height: "100vh",
+    overflow: "hidden",
+  },
+  main: {
+    flex: 1,
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
+  },
+};

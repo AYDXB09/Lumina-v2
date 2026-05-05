@@ -20,6 +20,8 @@ from fastapi.responses import FileResponse
 import os
 
 from auth.routes import router as auth_router
+from canvas.routes import router as canvas_router
+from chat.routes import router as chat_router
 from config import config
 
 logging.basicConfig(
@@ -73,14 +75,8 @@ app.add_middleware(
 # ------------------------------------------------------------------ #
 
 app.include_router(auth_router)
-
-# Placeholder for Canvas routes (Phase 1 next step)
-# from canvas.routes import router as canvas_router
-# app.include_router(canvas_router, prefix="/api")
-
-# Placeholder for chat routes (SSE streaming)
-# from chat.routes import router as chat_router
-# app.include_router(chat_router, prefix="/api")
+app.include_router(canvas_router)
+app.include_router(chat_router)
 
 
 # ------------------------------------------------------------------ #
