@@ -1,4 +1,4 @@
-# Lumina — Claude Code Context
+# Lumina v2 — Claude Code Context
 
 ## What is Lumina
 An AI-powered Socratic tutoring platform for students, built on top of Canvas LMS.
@@ -17,21 +17,50 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 ---
 
 ## Codebase
-- **Local path:** /Users/ny/Downloads/CursorProjects/School-AI/school-ai/
-- **GitHub:** AYDXB09/school-ai (SSH: git@github-aydxb09:AYDXB09/school-ai.git)
+- **Local path:** /Users/ny/Downloads/CursorProjects/Lumina-v2/
+- **GitHub:** AYDXB09/Lumina-v2 (SSH: git@github-aydxb09:AYDXB09/Lumina-v2.git)
 - **SSH key:** ~/.ssh/id_ed25519_aydxb09 | Host alias: github-aydxb09
 - **Stack:** React 19 + Vite (frontend) + FastAPI Python (backend)
-- **Current state:** Feature-complete hackathon build, 67+ commits, clean working tree
+- **Old hackathon repo:** /Users/ny/Downloads/CursorProjects/School-AI/school-ai/ — DO NOT TOUCH
 
-### Existing features (already built)
-- Socratic AI chat (K2-Think-v2 model, SSE streaming)
-- Canvas API integration (courses, assignments, announcements)
-- ChromaDB RAG (semantic search over course content)
-- Adaptive quiz generator (dynamic difficulty, LaTeX support)
-- Mind map / knowledge graph (SVG force-directed, concept extraction)
-- Voice mode (STT/TTS loop)
-- PDF / transcript upload
-- All state in localStorage (to be migrated to Supabase)
+### Built in v2 (this repo)
+- Canvas API Key auth (JWT + httpOnly refresh cookie, sessions in Supabase)
+- Provider abstraction layer: AI (K2 / OpenRouter / Anthropic / NVIDIA NIM), Storage (Supabase), Email (Resend)
+- Canvas sync: courses, modules, pages, assignments, announcements → Supabase
+- pgvector RAG: sentence-transformers all-MiniLM-L6-v2 (384-dim), HNSW index
+- SSE streaming chat with tool-call loop (K2/OpenRouter/Anthropic) or direct stream (DeepSeek)
+- Chat history persisted to Supabase, restored on course switch
+- System prompt injection: today's date + enrolled courses + upcoming assignments (avoids tool calls)
+- React frontend: Sidebar (course list) + ChatView (SSE streaming) + LoginScreen
+
+### Not yet ported from v1
+- Adaptive quiz generator
+- Mind map / knowledge graph
+- Voice mode (STT/TTS)
+- PDF / student material upload (schema exists, indexer built, no UI yet)
+
+---
+
+## Running Locally
+
+### Backend
+```bash
+cd /Users/ny/Downloads/CursorProjects/Lumina-v2/backend
+source .venv/bin/activate
+uvicorn main:app --reload
+```
+Runs on http://localhost:8000
+
+### Frontend
+```bash
+cd /Users/ny/Downloads/CursorProjects/Lumina-v2/frontend
+npm run dev
+```
+Runs on http://localhost:5173 (proxies /auth and /api to :8000)
+
+### .env location
+`/Users/ny/Downloads/CursorProjects/Lumina-v2/backend/.env`
+Note: .env changes require uvicorn restart (Ctrl+C then up arrow + Enter)
 
 ---
 
@@ -40,16 +69,15 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 Two deployment targets sharing identical application code.
 Only infrastructure layer differs — environment variables switch providers.
 
-### Non-AWS (default — build this first)
+### Non-AWS (default)
 | Layer | Tech | Notes |
 |---|---|---|
 | Frontend + Backend | FastAPI serves React build | Single Railway service, one URL |
 | Database | Supabase (Postgres + pgvector) | US East region |
-| AI | Anthropic API direct | No-training guarantee, no OpenRouter middleman |
+| AI | Configurable via AI_PROVIDER env var | See providers below |
 | File storage | Supabase Storage | Student uploads (PDFs, textbooks) |
-| Email | Resend | Instant setup, DPA available, no SES sandbox issues |
-| Queue | Railway Redis + Celery | RAG background indexing |
-| Secrets | Environment variables | Railway env var management |
+| Email | Resend | DPA available, no SES sandbox issues |
+| Secrets | Railway Variables | Simple env var management |
 
 ### AWS (later — for schools that require it)
 | Layer | Tech | Notes |
@@ -58,26 +86,25 @@ Only infrastructure layer differs — environment variables switch providers.
 | Database | RDS Postgres + pgvector | |
 | AI | Bedrock (Claude) | AWS DPA covers no-training guarantee |
 | File storage | S3 | |
-| Email | Resend | SES avoided — production access is unreliable |
-| Queue | ElastiCache Redis + Celery | |
+| Email | Resend | SES excluded — production access unreliable |
 | Secrets | AWS Secrets Manager | |
 
-**Note on AWS:** AWS architecture is for schools with existing AWS relationships or
-strict data residency requirements. Not the default path. Implement after Non-AWS
-is fully working. AWS SES is explicitly excluded — use Resend in both architectures.
-
-### Provider Abstraction Layer (backend)
-All provider-dependent code lives behind interfaces. Env vars switch implementations:
+### AI Provider Abstraction
+Switch via `AI_PROVIDER` env var — no code changes needed:
 ```
-AI_PROVIDER=anthropic          → AnthropicProvider
-AI_PROVIDER=bedrock            → BedrockProvider
-
-STORAGE_PROVIDER=supabase      → SupabaseStorageProvider
-STORAGE_PROVIDER=s3            → S3StorageProvider
-
-EMAIL_PROVIDER=resend          → ResendEmailProvider
+AI_PROVIDER=k2          → K2Provider      (K2-Think-v2 direct)
+AI_PROVIDER=openrouter  → OpenRouterProvider
+AI_PROVIDER=anthropic   → AnthropicProvider
+AI_PROVIDER=nvidia      → NvidiaProvider  (NVIDIA NIM — Llama, DeepSeek etc.)
 ```
-Database code (SQLAlchemy) is identical for both — both use Postgres + pgvector.
+
+**Tool calling support:**
+- K2, OpenRouter, Anthropic, Llama on NVIDIA: full OpenAI-style tool calling
+- DeepSeek on NVIDIA: tool calling disabled (outputs raw DSML syntax) — uses pre-injected context instead
+
+**Currently running:** NVIDIA NIM with `meta/llama-3.3-70b-instruct`
+
+**Performance:** When a course is selected, assignments are pre-injected into the system prompt → 1 AI call per message (no tool loop overhead).
 
 ---
 
@@ -86,109 +113,60 @@ Database code (SQLAlchemy) is identical for both — both use Postgres + pgvecto
 - **URL:** https://tnholnjrhnnqytmpqacb.supabase.co
 - **Region:** US East (North Virginia)
 - **MCP:** supabase-lumina (configured in .mcp.json at project root)
-- Separate account from carpooling project
 
 ---
 
 ## Authentication
 
-### Current approach: Canvas API Key (POC)
+### Current: Canvas API Key
 Student generates their own Canvas API key (Account → Settings → New Access Token)
-and pastes it into Lumina. No admin approval needed. Lumina validates it by calling
-/api/v1/users/self, then issues its own session JWT.
+and pastes it into Lumina. No admin approval needed.
 
-**Why this works:**
-- Student authenticates themselves — data accessed on their behalf
-- Canvas API key does not expire unless student revokes it
-- Same Canvas permissions as the student — cannot access other students' data
-- No school admin dependency to get started
+**Session flow:**
+1. Student submits Canvas URL + API key
+2. Backend validates via `/api/v1/users/self`
+3. Upserts school + user in Supabase, encrypts Canvas token (Fernet)
+4. Issues Lumina JWT (7 days) + refresh token (90 days, httpOnly cookie)
+5. Silent refresh on expiry — student never re-enters Canvas key
+6. Only re-prompts after 90 days inactive
 
-**Session management:**
-- Lumina JWT (7 days) stored in browser cookie
-- Refresh token (90 days) stored in `sessions` table, httpOnly cookie
-- Silent refresh on expiry — student never re-enters their Canvas key
-- Only re-prompts for Canvas API key after 90 days inactive
-
-### Future auth methods (same DB schema, same Canvas API calls)
-- **Canvas OAuth2:** Student clicks "Login with Canvas" — requires Developer Key
-  approval from Dwight's Canvas admin
-- **LTI 1.3:** Canvas launches Lumina directly — requires school IT involvement,
-  unlocks deep linking + roster provisioning
-
-`auth_method` column in `users` table tracks which method was used.
-`CanvasAuthProvider.get_canvas_token(user_id)` abstracts all three methods —
-Canvas API calls are identical regardless of auth method.
+### Future auth (same DB schema, same Canvas API calls)
+- **Canvas OAuth2** — requires Developer Key from Dwight Canvas admin
+- **LTI 1.3** — requires school IT, unlocks deep linking + roster provisioning
 
 ---
 
-## Roles (simplified — student-centered)
-```
-student       → core user (Canvas API key or OAuth)
-teacher       → light read-only monitoring only
-parent        → consent + periodic report
-school_admin  → platform config (AI model, API keys, feature flags)
-```
-Canvas roles (student/teacher) derived from Canvas API — not stored separately.
-No dept_head / coordinator / dean / principal — dropped intentionally.
-Reason: Lumina is student-centered. Not a school admin tool.
+## Key Files
+| File | Purpose |
+|---|---|
+| `backend/main.py` | FastAPI app, routes wired, SPA catch-all |
+| `backend/auth/routes.py` | Canvas API key login, JWT, refresh, logout |
+| `backend/auth/middleware.py` | JWT dependency, role guards |
+| `backend/auth/canvas.py` | Canvas token validation + retrieval abstraction |
+| `backend/auth/encrypt.py` | Fernet encryption for Canvas tokens at rest |
+| `backend/canvas/client.py` | Canvas REST client (pagination, HTML stripping) |
+| `backend/canvas/sync.py` | sync_courses(), get_course_content() |
+| `backend/canvas/routes.py` | /api/canvas/courses — list, sync, index |
+| `backend/rag/embedder.py` | all-MiniLM-L6-v2 singleton |
+| `backend/rag/indexer.py` | chunk + embed + store in pgvector |
+| `backend/rag/search.py` | match_index_chunks + match_student_materials RPC |
+| `backend/chat/engine.py` | Tool-call loop + direct stream, system prompt builder |
+| `backend/chat/prompt.py` | Socratic tutor system prompt |
+| `backend/chat/tools.py` | ToolExecutor — reads from Supabase cache |
+| `backend/chat/routes.py` | POST /api/chat/stream (SSE), sessions CRUD |
+| `backend/providers/ai/` | K2, OpenRouter, Anthropic, NVIDIA providers |
+| `backend/config.py` | All env vars |
+| `frontend/src/App.jsx` | Auth gate → MainLayout (Sidebar + ChatView) |
+| `frontend/src/contexts/AuthContext.jsx` | In-memory JWT, cookie refresh, authFetch |
+| `frontend/src/components/LoginScreen.jsx` | Canvas URL + API key form |
+| `frontend/src/components/Sidebar.jsx` | Course list, sync button, user info |
+| `frontend/src/components/ChatView.jsx` | SSE chat, tool status, history restore |
+| `frontend/src/api.js` | streamChat(), fetchCourses(), fetchSessions() |
+| `.mcp.json` | Supabase MCP config |
 
 ---
 
-## Confirmed Features (from lumina_feature_requirements.csv)
-
-### Student (core)
-- AI Chat Tutor (Socratic)
-- Canvas Course Sync (courses + metadata)
-- Canvas Modules & Pages Sync (primary RAG source — lecture notes, readings)
-- Canvas Files Sync (PDFs, slides auto-indexed)
-- Canvas Assignments Sync (names, due dates, descriptions)
-- Canvas Announcements Sync (teacher announcements in AI context)
-- Non-Canvas Material Upload (private — student's own textbooks, notes)
-- Adaptive Quiz
-- Mind Map
-- Mastery Tracking (from quiz performance only — NOT Canvas grades)
-- Voice Mode
-- Chat History (persistent, per course)
-- Progress Dashboard (own scores + mastery)
-- Mobile / PWA
-
-### Teacher (read-only monitoring)
-- Per-Student Drill-Down (AI usage + quiz results — supplementary only)
-- Quiz Review (what topics students are asking about)
-
-### Parent
-- Consent Flow (email via Resend, AI risk disclosure, opt-in)
-- Opt-In Reporting (weekly / monthly / none)
-- Progress Report View (read-only)
-- Withdraw Consent
-
-### School Admin
-- User Management
-- Role Assignment
-- AI Model Config (provider, model ID, API key — one model at a time)
-- Canvas API Config (school Canvas URL + credentials)
-- Feature Toggles
-- Usage Monitoring (token consumption, cost estimates)
-- Audit Logs
-- Data Retention Policy
-
-### Platform
-- Canvas API Key login now → OAuth2 → LTI 1.3 (progressive)
-- Transactional email via Resend
-- Dark Mode (already exists)
-- Audit Trail (all AI interactions logged)
-
-### Explicitly excluded (not replicating Canvas)
-- Canvas Grades View (students use Canvas for this)
-- Assignment Reminders (Canvas already does this)
-- Struggling Student Alerts (Canvas has predictive analytics)
-- Canvas Enrollments / Submissions / Grades Sync
-- Offline Access
-- Multi-School / Tenant (single school for POC)
-
----
-
-## DB Schema (built in Supabase — all migrations applied)
+## DB Schema (all migrations applied to Supabase)
 
 ### Core Identity
 - `schools` — id, name, canvas_url, created_at
@@ -202,126 +180,107 @@ Reason: Lumina is student-centered. Not a school admin tool.
   reporting_frequency, token, consented_at
 
 ### Canvas Sync
-- `courses` — id, canvas_course_id, school_id, name, course_code,
-  canvas_data JSONB, synced_at
+- `courses` — id, canvas_course_id, school_id, name, course_code, canvas_data JSONB, synced_at
 - `index_chunks` — id, course_id, source_type, source_id, content,
   embedding vector(384), metadata JSONB
-  - source_type: module / page / file / assignment / announcement
+  - source_type: page / assignment / announcement / file
   - HNSW index on embedding (vector_cosine_ops)
+- Supabase RPC functions: `match_index_chunks`, `match_student_materials`
 
 ### Student Activity
 - `student_materials` — id, user_id, course_id, filename, content,
   embedding vector(384), metadata JSONB, uploaded_at
 - `chat_sessions` — id, user_id, course_id, title, created_at, updated_at
-- `chat_messages` — id, session_id, role (user/assistant), content,
-  thinking JSONB, created_at
-- `quiz_attempts` — id, user_id, course_id, questions JSONB, answers JSONB,
-  score, difficulty, created_at
-- `mastery_scores` — id, user_id, course_id, concept, score FLOAT,
-  evidence JSONB, updated_at
+- `chat_messages` — id, session_id, role (user/assistant), content, thinking JSONB, created_at
+- `quiz_attempts` — id, user_id, course_id, questions JSONB, answers JSONB, score, difficulty, created_at
+- `mastery_scores` — id, user_id, course_id, concept, score FLOAT, evidence JSONB, updated_at
 - `mind_maps` — id, user_id, course_id, graph_data JSONB, updated_at
 
 ### Platform Config
-- `ai_config` — id, school_id, provider, model_id, api_key_encrypted,
-  settings JSONB
+- `ai_config` — id, school_id, provider, model_id, api_key_encrypted, settings JSONB
 - `feature_flags` — school_id, feature, enabled
-- `audit_logs` — id, user_id, action, target_type, target_id, metadata JSONB,
-  created_at
-- `api_usage` — id, school_id, user_id, model_id, input_tokens, output_tokens,
-  created_at
+- `audit_logs` — id, user_id, action, target_type, target_id, metadata JSONB, created_at
+- `api_usage` — id, school_id, user_id, model_id, input_tokens, output_tokens, created_at
 - `notifications` — id, user_id, type, payload JSONB, sent_at, read_at
 
 ---
 
 ## Architecture Decisions
 
+### Chat Performance
+- Enrolled courses pre-injected into system prompt on every request (skips get_courses tool call)
+- When a course is selected: upcoming assignments also injected → tool loop disabled → 1 AI call
+- When no course selected: tool loop enabled → AI can call get_assignments, get_announcements, search_course_content
+- All tool reads from Supabase cache (not live Canvas) — fast
+
+### Tool Calling
+- Tools read from Supabase (already synced) — not live Canvas API
+- Falls back to live Canvas only if data not yet indexed
+- DeepSeek models: tool loop disabled entirely (incompatible format on NVIDIA NIM)
+
+### RAG
+- pgvector in Supabase (replaced ChromaDB)
+- HNSW index on index_chunks.embedding and student_materials.embedding
+- Chunk size: 500 chars, 100 char overlap
+- Embeddings: all-MiniLM-L6-v2 (384-dim), normalized
+
+### Canvas Sync
+- Triggered manually via POST /api/canvas/courses/sync
+- Auto-index on first login: NOT YET BUILT (next task)
+- Background indexing via FastAPI BackgroundTasks (Celery/Redis deferred)
+
 ### Auth
-- Canvas API Key for POC — student self-service, no admin dependency
-- Canvas OAuth2 next — requires Developer Key from school Canvas admin
-- LTI 1.3 later — unlocks deep linking, roster provisioning, single-click launch
-- All three methods share identical Canvas API calls
-- CanvasAuthProvider abstraction handles token retrieval + refresh
-
-### AI Model
-- One model at a time, swappable via school_admin panel (no code change)
-- **Anthropic API direct** (not OpenRouter) — cleaner compliance chain,
-  explicit no-training guarantee on API data
-- Bedrock on AWS path (same guarantee, within AWS compliance boundary)
-- K2-Think-v2 was the hackathon model — Anthropic Claude for production
-
-### RAG / Indexing
-- pgvector in Supabase (replaced ChromaDB — hosted, persistent, no extra service)
-- HNSW index — works on empty table, no training data needed
-- Auto-index triggered on student's first login
-- Background job (Celery + Redis) — indexing doesn't block the UI
-- sentence-transformers all-MiniLM-L6-v2 for embeddings (384 dimensions)
-- index_chunks (Canvas content) + student_materials both searched at query time
-
-### Canvas API
-- REST API with student's own API token (scoped to their permissions)
-- Fetch: courses, modules, module items, pages, files, assignments, announcements
-- Pagination handled (per_page=100)
-- Student can only access what they themselves can see in Canvas
-- DAP (Data Access Platform): skip — bulk analytics tool, not real-time
-- xAPI: skip — Canvas implementation limited to page views only
-
-### Data Minimisation
-- Only sync course materials students already have access to
-- No grades, no submissions, no other students' data
-- Canvas content indexed then not stored raw long-term
-- Audit logs store metadata only — not full message content
-- Retention policy configurable per school in ai_config
+- Fernet symmetric encryption for Canvas tokens at rest
+- JWT secret + encryption key generated per deployment
+- httpOnly cookie for refresh token (XSS safe)
+- Access token in memory only (never localStorage)
 
 ### Email
-- Resend for all transactional email (both Non-AWS and AWS paths)
-- AWS SES explicitly excluded — production access approval is unreliable
-- Use cases: parent consent requests, weekly/monthly reports, breach notifications
+- Resend for all transactional email (both architectures)
+- AWS SES excluded — production access approval unreliable
 
 ---
 
 ## Compliance
 
-Dwight Global Online School is domiciled in **New York and Florida**.
-FERPA does not directly apply (private school, no federal funding) but the
-following regulations do:
+Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal funding).
 
-| Regulation | Applies | Key Requirements for Lumina |
+| Regulation | Applies | Key requirement |
 |---|---|---|
-| **NY Education Law §2-d** | ✅ Yes — NY domicile | Sign Parents' Bill of Rights DPA with Dwight before launch. No commercial use of student data. Bind all sub-processors. Breach notification required. Delete all data on contract end. |
-| **Florida SDPA FS §1002.222** | ✅ Yes — FL domicile | Signed agreement before data collection. Educational purpose only. No behavioural profiling. No sale/transfer of student data. Breach notification. |
-| **COPPA** | ✅ Yes — federal | Parental consent required for any student under 13. Applies regardless of school type. |
-| **GDPR** | ✅ Likely — international students | Dwight is an international school. EU/UK students trigger GDPR. Data minimisation, right to deletion, lawful basis for processing. |
-| **FERPA** | ⚠️ Not required | Private school with no federal funding. But worth building to FERPA standard — signals seriousness to future public school customers. |
-| **CCPA** | ⚠️ Check | If California-resident students are enrolled. |
+| NY Education Law §2-d | ✅ | DPA with Dwight before launch |
+| Florida SDPA FS §1002.222 | ✅ | Signed agreement before data collection |
+| COPPA | ✅ | Parental consent for under-13 |
+| GDPR | ✅ likely | International students — data minimisation, right to deletion |
+| CCPA | ⚠️ check | If CA-resident students enrolled |
 
-**Before pilot launch (legal blockers):**
-1. Sign NY §2-d compliant DPA with Dwight
-2. Sign FL SDPA compliant agreement with Dwight
-3. Verify all sub-processors have signed DPAs:
-   - Supabase ✅ DPA available
-   - Railway ⚠️ Limited DPA — acceptable for POC
-   - Resend ✅ DPA available
-   - Anthropic ✅ No-training guarantee on API data
-
-**Data the school needs to understand flows through:**
-Canvas → Lumina (Railway) → Supabase → Anthropic API
-Each hop must be covered by the DPA chain.
+**Sub-processor DPA status:**
+- Supabase ✅ | Railway ⚠️ limited | Resend ✅ | Anthropic ✅ | NVIDIA ⚠️ check for student data
 
 ---
 
 ## Roadmap
 
-### Phase 1 — Foundation (current)
-- [x] Supabase schema (all migrations applied)
-- [ ] Canvas API Key auth (POST /auth/apikey + frontend login screen)
-- [ ] Provider abstraction layer (AI, storage, email)
-- [ ] Auto-index Canvas courses on first student login
-- [ ] Migrate chat history + quiz results from localStorage to Supabase
-- [ ] Deploy to Railway (single service — FastAPI serves React build)
+### Phase 1 — Foundation ✅ COMPLETE
+- [x] Supabase schema (18 tables, all migrations applied)
+- [x] Canvas API Key auth (POST /auth/apikey, /auth/me, /auth/refresh, /auth/logout)
+- [x] Provider abstraction (K2, OpenRouter, Anthropic, NVIDIA NIM)
+- [x] Canvas sync (courses, modules, pages, assignments, announcements)
+- [x] pgvector RAG (index_chunks + student_materials, HNSW, match RPCs)
+- [x] SSE streaming chat with tool loop
+- [x] Chat history persisted to Supabase + restored on course switch
+- [x] React frontend: login, sidebar, chat UI
+- [x] Dockerfile + docker-compose
 
-### Phase 2 — Multi-user
-- [ ] Every Dwight student can log in
-- [ ] school_admin panel (AI model config, Canvas URL, feature flags)
+### Phase 1 — Remaining
+- [ ] Auto-index Canvas on first student login (currently manual sync required)
+- [ ] Deploy to Railway
+
+### Phase 2 — Full student experience
+- [ ] Adaptive quiz generator (port from v1)
+- [ ] Mind map (port from v1)
+- [ ] PDF / student material upload + indexing UI
+- [ ] Voice mode (port from v1)
+- [ ] school_admin panel (AI model config, feature flags)
 - [ ] Parent consent flow + Resend email
 - [ ] Sign DPA with Dwight
 
@@ -331,37 +290,7 @@ Each hop must be covered by the DPA chain.
 
 ### Phase 4 — Auth upgrade
 - [ ] Canvas OAuth2 (requires Developer Key from Dwight admin)
-- [ ] LTI 1.3 (requires school IT involvement)
+- [ ] LTI 1.3 (requires school IT)
 
-### Phase 5 — AWS path (for schools requiring it)
+### Phase 5 — AWS path
 - [ ] ECS Fargate + RDS Postgres + Bedrock + S3
-- [ ] Single AWS account deployment option
-- [ ] School runs inside their own AWS account (full data sovereignty)
-
----
-
-## Key Files
-| File | Purpose |
-|---|---|
-| src/App.jsx | Main chat interface (~1765 lines, needs splitting) |
-| src/api.js | K2 API client + SSE streaming |
-| src/canvasApi.js | Canvas REST API integration (996 lines) |
-| src/courseWorkspace.js | Concept extraction + knowledge graph |
-| src/systemPrompt.js | Socratic teaching system prompt |
-| backend/main.py | FastAPI app, SSE endpoints |
-| backend/tool_controller.py | LLM function-calling orchestrator |
-| backend/canvas_tools.py | Canvas API tools for LLM |
-| backend/rag.py | ChromaDB RAG (to be replaced with pgvector) |
-| lumina_feature_requirements.csv | Feature decisions (Y/N/?) with comments |
-| .mcp.json | Supabase MCP config (supabase-lumina) |
-
----
-
-## Next Immediate Step
-Build Phase 1 backend auth + provider abstraction:
-1. `POST /auth/apikey` — validate Canvas key, upsert user, return JWT + refresh token
-2. `GET /auth/me` — return current user
-3. `POST /auth/refresh` — silent JWT renewal
-4. `POST /auth/logout` — invalidate session
-5. Provider abstraction: AnthropicProvider, SupabaseStorageProvider, ResendEmailProvider
-6. Frontend login screen — Canvas URL + API key input, replace localStorage auth
