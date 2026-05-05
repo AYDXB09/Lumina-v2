@@ -97,6 +97,8 @@ export async function streamChat(authFetch, messages, opts = {}, onChunk, onTool
           onChunk?.(event.text);
         } else if (event.type === "tool_call") {
           onToolCall?.(event);
+        } else if (event.type === "error") {
+          throw new Error(event.message ?? "AI provider error");
         }
       } catch {
         // Ignore malformed chunks

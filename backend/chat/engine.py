@@ -33,6 +33,11 @@ def _sse(payload: dict | str) -> str:
 # OpenAI-compatible engine (K2 + OpenRouter)                         #
 # ------------------------------------------------------------------ #
 
+def _clean_messages(messages: list[dict]) -> list[dict]:
+    """Strip any extra fields (id, created_at, etc.) — only role + content allowed."""
+    return [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") and m.get("content")]
+
+
 async def _run_openai_compat(
     messages: list[dict],
     executor: ToolExecutor,
@@ -40,18 +45,43 @@ async def _run_openai_compat(
     system: str = SYSTEM_PROMPT,
 ) -> AsyncIterator[str]:
 
-    history = [{"role": "system", "content": system}] + messages
+    history = [{"role": "system", "content": system}] + _clean_messages(messages)
 
+    from openai import AsyncOpenAI
+    client: AsyncOpenAI = provider._client
+    model = provider._model
+
+    # Skip tool loop when:
+    # 1. Model doesn't support OpenAI-style function calling (e.g. DeepSeek)
+    # 2. Course context is already injected in system prompt (course_id present)
+    #    — avoids tripling NVIDIA API calls for common questions
+    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek",)
+    model_name = model.lower()
+    context_preloaded = "## Assignments in selected course" in system
+    tools_supported = (
+        not any(m in model_name for m in MODELS_WITHOUT_TOOL_SUPPORT)
+        and not context_preloaded
+    )
+
+    if not tools_supported:
+        # Direct stream — no tool loop overhead
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=history,
+            stream=True,
+            temperature=0.7,
+            max_tokens=4096,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield _sse({"type": "content", "text": delta})
+        yield _sse("[DONE]")
+        return
+
+    # Tool-capable models: run the tool-call loop
     for round_num in range(MAX_TOOL_ROUNDS):
         is_last = round_num == MAX_TOOL_ROUNDS - 1
-
-        # Non-streaming tool resolution rounds
-        import openai as _openai_mod
-        from openai import AsyncOpenAI
-
-        # Access the underlying client
-        client: AsyncOpenAI = provider._client
-        model = provider._model
 
         kwargs = dict(
             model=model,
@@ -69,7 +99,6 @@ async def _run_openai_compat(
         message = choice.message
 
         if message.tool_calls:
-            # Add assistant message with tool_calls to history
             history.append(message.model_dump(exclude_none=True))
 
             for tc in message.tool_calls:
@@ -132,7 +161,7 @@ async def _run_anthropic(
         for t in TOOL_DEFINITIONS
     ]
 
-    history = list(messages)
+    history = _clean_messages(messages)
 
     for round_num in range(MAX_TOOL_ROUNDS):
         is_last = round_num == MAX_TOOL_ROUNDS - 1
@@ -192,27 +221,58 @@ async def _run_anthropic(
 
 async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
     """
-    Inject pre-fetched course list into the system prompt so the AI
-    doesn't need to call get_courses() on every message — saves one full
-    K2 round trip.
+    Build a rich system prompt by injecting:
+    - Current date (so AI filters assignments correctly)
+    - Enrolled courses
+    - Upcoming assignments for the selected course (avoids tool calls for common queries)
     """
+    from datetime import datetime, timezone
+    from db.client import get_supabase
+
+    today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
+    model_name = config.NVIDIA_MODEL if config.AI_PROVIDER == "nvidia" else \
+                 config.ANTHROPIC_MODEL if config.AI_PROVIDER == "anthropic" else \
+                 config.OPENROUTER_MODEL if config.AI_PROVIDER == "openrouter" else \
+                 config.K2_MODEL
+    extra = f"\n\n## System info\nToday's date: {today}\nUnderlying AI model: {model_name}\nOnly mention assignments due AFTER today as 'upcoming'.\n"
+
     try:
-        from db.client import get_supabase
         sb = get_supabase()
+
+        # Inject enrolled courses
         result = sb.table("enrollments").select(
-            "courses(canvas_course_id, name, course_code)"
+            "courses(id, canvas_course_id, name, course_code)"
         ).eq("user_id", user_id).execute()
 
-        courses = [
-            f"- {r['courses']['name']} (canvas_course_id: {r['courses']['canvas_course_id']})"
-            for r in result.data if r.get("courses")
-        ]
+        courses = [r["courses"] for r in result.data if r.get("courses")]
         if courses:
-            course_context = "\n## Student's enrolled courses\n" + "\n".join(courses) + "\n"
-            return SYSTEM_PROMPT + course_context
+            course_lines = "\n".join(
+                f"- {c['name']} (canvas_course_id: {c['canvas_course_id']})"
+                for c in courses
+            )
+            extra += f"\n## Student's enrolled courses\n{course_lines}\n"
+
+        # If a specific course is selected, inject its upcoming assignments
+        if course_id:
+            chunks = sb.table("index_chunks").select(
+                "source_id, metadata, content"
+            ).eq("course_id", course_id).eq("source_type", "assignment").execute()
+
+            if chunks.data:
+                seen = {}
+                for c in chunks.data:
+                    sid = c["source_id"]
+                    if sid not in seen:
+                        due = c["metadata"].get("due_at", "No due date")
+                        seen[sid] = f"- {c['metadata'].get('title', 'Untitled')} — due: {due}"
+                assignment_lines = "\n".join(seen.values())
+                extra += f"\n## Assignments in selected course\n{assignment_lines}\n"
+                extra += "\nUse this data to answer assignment questions directly without calling tools.\n"
+
     except Exception:
         pass
-    return SYSTEM_PROMPT
+
+    return SYSTEM_PROMPT + extra
 
 
 async def run_chat(
