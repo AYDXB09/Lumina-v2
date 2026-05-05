@@ -19,7 +19,7 @@ export default function ChatView({ course = null, session = null, onSessionCreat
   const [messages, setMessages]       = useState([]);
   const [input, setInput]             = useState("");
   const [loading, setLoading]         = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [toolStatus, setToolStatus]   = useState(null);
   const [streamingText, setStreamingText] = useState("");
   const bottomRef    = useRef(null);
@@ -145,11 +145,7 @@ export default function ChatView({ course = null, session = null, onSessionCreat
 
       {/* Messages */}
       <div style={styles.messages}>
-        {historyLoading ? (
-          <div style={styles.empty}>
-            <p style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>Loading history…</p>
-          </div>
-        ) : messages.length === 0 ? (
+        {messages.length === 0 && !historyLoading ? (
           <div style={styles.empty}>
             <p style={styles.emptyTitle}>What are you studying today?</p>
             <p style={styles.emptyHint}>
