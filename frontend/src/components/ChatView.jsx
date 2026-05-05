@@ -92,12 +92,17 @@ export default function ChatView({ course = null, session = null, onSessionCreat
         },
         (toolCall) => {
           const labels = {
-            get_courses:          "Fetching your courses…",
-            get_assignments:      "Loading assignments…",
-            get_announcements:    "Checking announcements…",
+            get_courses:           "Fetching your courses…",
+            get_assignments:       "Loading assignments…",
+            get_announcements:     "Checking announcements…",
             search_course_content: "Searching course materials…",
           };
           setToolStatus(labels[toolCall.name] ?? `Calling ${toolCall.name}…`);
+        },
+        (sessionId) => {
+          // Backend told us the session_id — persist it so future
+          // messages in this conversation reuse the same session
+          sessionIdRef.current = sessionId;
         },
       );
 

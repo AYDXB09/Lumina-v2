@@ -54,7 +54,7 @@ export async function fetchMessages(authFetch, sessionId) {
  * @param {Function} onToolCall   - called with { name, args }
  * @returns {Promise<string>}     - full assembled response
  */
-export async function streamChat(authFetch, messages, opts = {}, onChunk, onToolCall) {
+export async function streamChat(authFetch, messages, opts = {}, onChunk, onToolCall, onSessionId) {
   const res = await authFetch(`${BASE}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -90,7 +90,9 @@ export async function streamChat(authFetch, messages, opts = {}, onChunk, onTool
 
       try {
         const event = JSON.parse(raw);
-        if (event.type === "content" && event.text) {
+        if (event.type === "session_id") {
+          onSessionId?.(event.session_id);
+        } else if (event.type === "content" && event.text) {
           full += event.text;
           onChunk?.(event.text);
         } else if (event.type === "tool_call") {

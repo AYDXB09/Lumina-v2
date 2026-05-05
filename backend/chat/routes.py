@@ -71,6 +71,9 @@ async def chat_stream(body: ChatRequest, user=Depends(get_current_student)):
         session_id = result.data[0]["id"]
 
     async def event_stream():
+        # First event: tell the frontend which session_id to use
+        yield f"data: {json.dumps({'type': 'session_id', 'session_id': session_id})}\n\n"
+
         full_response = []
         try:
             async for chunk in run_chat(
