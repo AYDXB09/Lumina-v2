@@ -1,112 +1,129 @@
 /**
  * ChatMessage — renders a single message bubble.
- * Supports markdown + LaTeX (via marked + KaTeX via CSS).
  *
- * For now: lightweight — just preserves line breaks and code blocks.
- * Full markdown rendering can be added with `marked` later.
+ * AI messages: full Markdown + LaTeX math (KaTeX).
+ * User messages: plain text with line-break preservation.
+ *
+ * Markdown features:
+ *   **bold**, *italic*, ~~strike~~, `code`, ```blocks```,
+ *   # headings, - / * bullet lists, 1. ordered lists,
+ *   > blockquotes, --- horizontal rule, | tables |,
+ *   [link text](url) — rendered as styled non-hyperlink spans to keep students on Lumina.
+ *
+ * Math:
+ *   Inline:  $...$  or  \(...\)
+ *   Block:   $$...$$  or  \[...\]
  */
 
-import React from "react";
+import React, { useMemo } from "react";
+import katex from "katex";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import LuminaLogo from "./LuminaLogo.jsx";
+import { useSettings } from "../contexts/SettingsContext.jsx";
 
+// ---- Configure marked ----
+marked.setOptions({ breaks: true, gfm: true });
+
+// ---- Math pre-processing helpers ----
+// Replace $$...$$ and $...$ before passing to marked so they survive HTML escaping.
+
+const BLOCK_MATH_RE  = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]/g;
+const INLINE_MATH_RE = /\$([^$\n]+?)\$|\\\((.+?)\\\)/g;
+
+function renderMath(tex, displayMode) {
+  try {
+    return katex.renderToString(tex, {
+      displayMode,
+      throwOnError: false,
+      output: "html",
+    });
+  } catch {
+    return `<code>${tex}</code>`;
+  }
+}
+
+function processMath(raw) {
+  // Block math first ($$...$$), then inline ($...$)
+  let out = raw.replace(BLOCK_MATH_RE, (_, m1, m2) => {
+    const tex = (m1 ?? m2).trim();
+    return `<span class="math-block">${renderMath(tex, true)}</span>`;
+  });
+  out = out.replace(INLINE_MATH_RE, (_, m1, m2) => {
+    const tex = (m1 ?? m2).trim();
+    return `<span class="math-inline">${renderMath(tex, false)}</span>`;
+  });
+  return out;
+}
+
+// ---- Strip raw think tags (K2 / DeepSeek style) ----
+function stripThinking(text) {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<think>[\s\S]*$/gi, "")
+    .trim();
+}
+
+// ---- Custom marked renderer: open links in same page as text (no nav) ----
+const renderer = new marked.Renderer();
+renderer.link = ({ href, title, text }) => {
+  // Render links as styled inline text to prevent navigation away from Lumina
+  return `<span class="md-link" title="${href}" data-href="${href}">${text}</span>`;
+};
+renderer.image = ({ href, title, text }) => {
+  return `<span class="md-link" title="${href}">[Image: ${text || title || href}]</span>`;
+};
+
+// ---- Main render pipeline ----
+function renderMarkdown(raw) {
+  if (!raw) return "";
+  const stripped  = stripThinking(raw);
+  const mathApplied = processMath(stripped);
+  const html = marked.parse(mathApplied, { renderer });
+  return DOMPurify.sanitize(html, {
+    ADD_TAGS: ["span"],
+    ADD_ATTR: ["class", "style", "data-href", "title", "aria-hidden"],
+    FORCE_BODY: false,
+  });
+}
+
+// ---- Component ----
 export default function ChatMessage({ role, content, isStreaming = false }) {
   const isUser = role === "user";
+  const { settings } = useSettings();
+
+  const html = useMemo(() => {
+    if (isUser) return null;
+    return renderMarkdown(content);
+  }, [content, isUser]);
 
   return (
-    <div style={{ ...styles.row, justifyContent: isUser ? "flex-end" : "flex-start" }}>
-      {!isUser && <div style={styles.avatar}>✦</div>}
-      <div style={{
-        ...styles.bubble,
-        ...(isUser ? styles.userBubble : styles.aiBubble),
-      }}>
-        <MessageContent content={content} isStreaming={isStreaming} />
+    <div className={`msg-row ${isUser ? "user-row" : "ai-row"}`}>
+      {!isUser && (
+        <div className="msg-avatar">
+          <LuminaLogo size={18} color="#ffffff" />
+        </div>
+      )}
+
+      <div
+        className={`msg-bubble ${isUser ? "user" : "ai"}`}
+        style={{
+          fontFamily: "var(--chat-font)",
+          fontSize:   "var(--chat-font-size)",
+        }}
+      >
+        {isUser ? (
+          <span style={{ whiteSpace: "pre-wrap" }}>{content}</span>
+        ) : (
+          <>
+            <div
+              className="md-body"
+              dangerouslySetInnerHTML={{ __html: html ?? "" }}
+            />
+            {isStreaming && <span className="msg-cursor">▊</span>}
+          </>
+        )}
       </div>
     </div>
   );
 }
-
-function MessageContent({ content, isStreaming }) {
-  // Very lightweight rendering — split on code blocks and newlines
-  const parts = content.split(/(```[\s\S]*?```)/g);
-
-  return (
-    <div style={styles.content}>
-      {parts.map((part, i) => {
-        if (part.startsWith("```")) {
-          const lines = part.split("\n");
-          const lang = lines[0].replace("```", "").trim();
-          const code = lines.slice(1, -1).join("\n");
-          return (
-            <pre key={i} style={styles.code}>
-              <code>{code}</code>
-            </pre>
-          );
-        }
-        // Render inline with newlines
-        return (
-          <span key={i} style={{ whiteSpace: "pre-wrap" }}>
-            {part}
-          </span>
-        );
-      })}
-      {isStreaming && <span style={styles.cursor}>▊</span>}
-    </div>
-  );
-}
-
-const styles = {
-  row: {
-    display: "flex",
-    gap: "10px",
-    marginBottom: "16px",
-    alignItems: "flex-start",
-  },
-  avatar: {
-    flexShrink: 0,
-    width: "28px",
-    height: "28px",
-    borderRadius: "50%",
-    background: "var(--color-primary)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "12px",
-    color: "#fff",
-    marginTop: "2px",
-  },
-  bubble: {
-    maxWidth: "75%",
-    padding: "12px 16px",
-    borderRadius: "16px",
-    fontSize: "14px",
-    lineHeight: "1.6",
-  },
-  userBubble: {
-    background: "var(--color-primary)",
-    color: "#fff",
-    borderBottomRightRadius: "4px",
-  },
-  aiBubble: {
-    background: "var(--color-surface)",
-    color: "var(--color-text)",
-    border: "1px solid var(--color-border)",
-    borderBottomLeftRadius: "4px",
-  },
-  content: {
-    display: "block",
-  },
-  code: {
-    background: "var(--color-surface-2)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "6px",
-    padding: "10px 14px",
-    fontSize: "12px",
-    overflowX: "auto",
-    margin: "8px 0",
-    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-    whiteSpace: "pre",
-  },
-  cursor: {
-    animation: "blink 1s step-end infinite",
-    color: "var(--color-primary)",
-  },
-};

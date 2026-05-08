@@ -9,7 +9,7 @@ POST /auth/logout    — delete session from DB
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Response, Request, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, Request, Depends
 from pydantic import BaseModel
 
 from auth.canvas import validate_canvas_api_key
@@ -65,7 +65,7 @@ def _clear_refresh_cookie(response: Response) -> None:
 # ------------------------------------------------------------------ #
 
 @router.post("/apikey", response_model=AuthResponse)
-async def login_with_api_key(body: ApiKeyLoginRequest, response: Response):
+async def login_with_api_key(body: ApiKeyLoginRequest, response: Response, background_tasks: BackgroundTasks):
     """
     Validate student's Canvas API key, upsert user in Supabase,
     issue Lumina JWT + refresh token.
@@ -130,15 +130,26 @@ async def login_with_api_key(body: ApiKeyLoginRequest, response: Response):
     # 8. Set refresh cookie
     _set_refresh_cookie(response, raw_refresh)
 
+    # 9. Auto-sync + index on first login (no prior enrollments)
+    existing_enrollments = sb.table("enrollments").select("course_id").eq(
+        "user_id", user_id
+    ).limit(1).execute()
+    is_first_login = not existing_enrollments.data
+
+    if is_first_login:
+        logger.info("First login for user %s — triggering background sync + index", user_id)
+        background_tasks.add_task(_first_login_sync, user_id, school_id)
+
     return AuthResponse(
         access_token=access_token,
         user={
-            "id":         user_id,
-            "name":       user["name"],
-            "email":      user["email"],
-            "avatar_url": user["avatar_url"],
-            "role":       canvas_role,
-            "school_id":  school_id,
+            "id":          user_id,
+            "name":        user["name"],
+            "email":       user["email"],
+            "avatar_url":  user["avatar_url"],
+            "canvas_role": canvas_role,
+            "school_id":   school_id,
+            "first_login": is_first_login,
         },
     )
 
@@ -229,6 +240,32 @@ async def logout(
 # ------------------------------------------------------------------ #
 # Internal helper                                                     #
 # ------------------------------------------------------------------ #
+
+async def _first_login_sync(user_id: str, school_id: str) -> None:
+    """
+    Triggered once on a student's very first login.
+    Syncs all courses from Canvas and indexes their content into pgvector.
+    Runs entirely in the background — does not block the login response.
+    """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    try:
+        from canvas.sync import sync_courses, get_course_content
+        from rag.indexer import index_course_content
+
+        courses = await sync_courses(user_id, school_id)
+        _log.info("First-login sync: %d courses for user %s", len(courses), user_id)
+
+        for course in courses:
+            try:
+                content = await get_course_content(user_id, int(course["canvas_course_id"]))
+                chunks  = await index_course_content(course["id"], content)
+                _log.info("First-login index: course %s → %d chunks", course["id"], chunks)
+            except Exception as e:
+                _log.error("First-login index failed for course %s: %s", course.get("id"), e)
+    except Exception as e:
+        _log.error("First-login sync failed for user %s: %s", user_id, e)
+
 
 async def _get_canvas_role(canvas_url: str, api_key: str) -> str:
     """

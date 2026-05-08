@@ -2,12 +2,14 @@
 Lumina Backend — FastAPI application entry point.
 
 Routes:
-  /auth/*          — Canvas API key login, session management
-  /api/canvas/*    — Canvas course/assignment/announcement data
-  /api/chat/*      — AI chat (SSE streaming)
-  /api/quiz/*      — Adaptive quiz generation
-  /api/materials/* — Student file uploads
-  /health          — Health check
+  /auth/*                  — Canvas API key login, session management
+  /api/canvas/*            — Canvas course/assignment/announcement data
+  /api/chat/*              — AI chat (SSE streaming)
+  /api/calendar/*          — iCal calendar sources + events
+  /api/materials/*         — Student PDF/file uploads + RAG indexing
+  /api/mindmap/*           — Course mind map (generate + store)
+  /api/admin/materials/*   — Admin knowledge base upload + management
+  /health                  — Health check
 """
 
 import logging
@@ -22,6 +24,10 @@ import os
 from auth.routes import router as auth_router
 from canvas.routes import router as canvas_router
 from chat.routes import router as chat_router
+from cal.routes import router as calendar_router
+from materials.routes import router as materials_router
+from mindmap.routes import router as mindmap_router
+from admin.routes import router as admin_router
 from config import config
 
 logging.basicConfig(
@@ -38,6 +44,24 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Lumina backend starting — provider: %s", config.AI_PROVIDER)
+
+    # Pre-warm the embedding model so the first sign-in (which triggers
+    # background indexing) doesn't pay the 2-3 s cold-start cost on the
+    # hot path.  Runs in a thread so it doesn't block the event loop.
+    import asyncio
+    import concurrent.futures
+
+    def _warm_embedder():
+        try:
+            from rag.embedder import embed
+            embed(["warmup"])
+            logger.info("Embedding model pre-warmed ✓")
+        except Exception as e:
+            logger.warning("Embedder warmup failed (non-fatal): %s", e)
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(concurrent.futures.ThreadPoolExecutor(max_workers=1), _warm_embedder)
+
     yield
     logger.info("Lumina backend shutting down")
 
@@ -77,6 +101,10 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(canvas_router)
 app.include_router(chat_router)
+app.include_router(calendar_router)
+app.include_router(materials_router)
+app.include_router(mindmap_router)
+app.include_router(admin_router)
 
 
 # ------------------------------------------------------------------ #

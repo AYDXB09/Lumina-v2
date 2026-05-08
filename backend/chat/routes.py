@@ -9,6 +9,7 @@ GET  /api/chat/sessions/{id}/messages — load message history
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -75,6 +76,7 @@ async def chat_stream(body: ChatRequest, user=Depends(get_current_student)):
         yield f"data: {json.dumps({'type': 'session_id', 'session_id': session_id})}\n\n"
 
         full_response = []
+        stream_start = time.monotonic()
         try:
             async for chunk in run_chat(
                 messages=body.messages,
@@ -98,6 +100,8 @@ async def chat_stream(body: ChatRequest, user=Depends(get_current_student)):
             yield "data: [DONE]\n\n"
             return
 
+        response_ms = int((time.monotonic() - stream_start) * 1000)
+
         # Persist messages to DB after stream completes
         try:
             # Persist the last user message
@@ -107,16 +111,18 @@ async def chat_stream(body: ChatRequest, user=Depends(get_current_student)):
             if last_user:
                 sb.table("chat_messages").insert({
                     "session_id": session_id,
-                    "role": "user",
-                    "content": last_user["content"],
+                    "role":       "user",
+                    "content":    last_user["content"],
                 }).execute()
 
-            # Persist assistant response
+            # Persist assistant response — store response_ms in thinking JSONB
+            # so the timer badge can be restored when history is reloaded
             if full_response:
                 sb.table("chat_messages").insert({
                     "session_id": session_id,
-                    "role": "assistant",
-                    "content": "".join(full_response),
+                    "role":       "assistant",
+                    "content":    "".join(full_response),
+                    "thinking":   {"response_ms": response_ms},
                 }).execute()
 
             # Update session updated_at
@@ -180,7 +186,7 @@ async def get_messages(session_id: str, user=Depends(get_current_student)):
         raise HTTPException(status_code=404, detail="Session not found")
 
     messages = sb.table("chat_messages").select(
-        "id, role, content, created_at"
+        "id, role, content, thinking, created_at"
     ).eq("session_id", session_id).order("created_at").execute()
 
     return {"messages": messages.data}

@@ -8,6 +8,7 @@
 
 import React, { useState } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
+import LuminaLogo from "./LuminaLogo.jsx";
 
 const DEFAULT_CANVAS_URL = import.meta.env.VITE_CANVAS_URL ?? "https://dwight.instructure.com";
 
@@ -36,7 +37,7 @@ export default function LoginScreen() {
       <div style={styles.card}>
         {/* Logo / wordmark */}
         <div style={styles.header}>
-          <span style={styles.logo}>✦</span>
+          <div style={styles.logoWrap}><LuminaLogo size={52} /></div>
           <h1 style={styles.title}>Lumina</h1>
           <p style={styles.subtitle}>Your AI study companion for Canvas</p>
         </div>
@@ -93,6 +94,8 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     background: "var(--color-bg)",
+    backgroundImage: "linear-gradient(var(--color-border) 1px, transparent 1px), linear-gradient(90deg, var(--color-border) 1px, transparent 1px)",
+    backgroundSize: "40px 40px",
     padding: "24px",
   },
   card: {
@@ -102,17 +105,16 @@ const styles = {
     padding: "40px 36px",
     width: "100%",
     maxWidth: "420px",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+    boxShadow: "0 8px 32px rgba(0,0,0,0.1)",
   },
   header: {
     textAlign: "center",
     marginBottom: "32px",
   },
-  logo: {
-    fontSize: "32px",
-    color: "var(--color-primary)",
-    display: "block",
-    marginBottom: "8px",
+  logoWrap: {
+    display: "flex",
+    justifyContent: "center",
+    marginBottom: "14px",
   },
   title: {
     fontSize: "24px",
@@ -148,6 +150,8 @@ const styles = {
     fontSize: "14px",
     outline: "none",
     transition: "border-color 0.15s",
+    boxSizing: "border-box",
+    width: "100%",
   },
   hint: {
     fontSize: "12px",
@@ -158,14 +162,15 @@ const styles = {
   },
   button: {
     background: "var(--color-primary)",
-    color: "#fff",
+    color: "var(--color-primary-text)",
     border: "none",
-    borderRadius: "8px",
+    borderRadius: "9999px",
     padding: "12px",
     fontSize: "15px",
     fontWeight: "600",
     marginTop: "4px",
     transition: "background 0.15s",
+    cursor: "pointer",
   },
   error: {
     color: "var(--color-error)",

@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./dev.sh)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(open -a Safari http://localhost:5173)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__Claude_in_Chrome__browser_batch",
+      "mcp__Claude_in_Chrome__computer",
+      "mcp__Claude_in_Chrome__read_console_messages",
+      "Bash(npm install *)",
+      "mcp__Claude_in_Chrome__javascript_tool",
+      "Bash(lsof -ti:5173)",
+      "Bash(npx vite *)",
+      "mcp__supabase-lumina__apply_migration",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -c ' *)",
+      "Bash(find /Users/ny/Downloads/CursorProjects/School-AI/school-ai/ -type f \\\\\\( -name \"*mind*\" -o -name \"*map*\" -o -name \"*graph*\" -o -name \"*d3*\" -o -name \"*vis*\" \\\\\\) 2>/dev/null | head -20)",
+      "Bash(grep -E \"\\\\.py$|routes\")",
+      "mcp__supabase-lumina__execute_sql",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

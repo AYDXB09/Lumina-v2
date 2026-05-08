@@ -55,7 +55,7 @@ async def _run_openai_compat(
     # 1. Model doesn't support OpenAI-style function calling (e.g. DeepSeek)
     # 2. Course context is already injected in system prompt (course_id present)
     #    — avoids tripling NVIDIA API calls for common questions
-    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek",)
+    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")
     model_name = model.lower()
     context_preloaded = "## Assignments in selected course" in system
     tools_supported = (
@@ -222,55 +222,166 @@ async def _run_anthropic(
 async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
     """
     Build a rich system prompt by injecting:
-    - Current date (so AI filters assignments correctly)
+    - Current date
     - Enrolled courses
-    - Upcoming assignments for the selected course (avoids tool calls for common queries)
+    - Upcoming assignments + quizzes for the selected course
+    - Calendar events from cache (never fetches live — avoids blocking the hot path)
+
+    All Supabase queries run in a thread pool and are launched in parallel with
+    asyncio.gather to minimise latency before the first AI token.
     """
-    from datetime import datetime, timezone
+    import asyncio
+    from datetime import datetime, timezone, timedelta
     from db.client import get_supabase
 
-    today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
-    model_name = config.NVIDIA_MODEL if config.AI_PROVIDER == "nvidia" else \
-                 config.ANTHROPIC_MODEL if config.AI_PROVIDER == "anthropic" else \
-                 config.OPENROUTER_MODEL if config.AI_PROVIDER == "openrouter" else \
-                 config.K2_MODEL
-    extra = f"\n\n## System info\nToday's date: {today}\nUnderlying AI model: {model_name}\nOnly mention assignments due AFTER today as 'upcoming'.\n"
+    now   = datetime.now(timezone.utc)
+    today = now.strftime("%A, %B %d, %Y")
+    model_name = (
+        config.NVIDIA_MODEL     if config.AI_PROVIDER == "nvidia"     else
+        config.ANTHROPIC_MODEL  if config.AI_PROVIDER == "anthropic"  else
+        config.OPENROUTER_MODEL if config.AI_PROVIDER == "openrouter" else
+        config.K2_MODEL
+    )
+    extra = (
+        f"\n\n## System info\n"
+        f"Today's date: {today}\n"
+        f"Underlying AI model: {model_name}\n"
+        f"Only mention assignments due AFTER today as 'upcoming'.\n"
+    )
 
     try:
         sb = get_supabase()
 
-        # Inject enrolled courses
-        result = sb.table("enrollments").select(
-            "courses(id, canvas_course_id, name, course_code)"
-        ).eq("user_id", user_id).execute()
+        # ------------------------------------------------------------------
+        # Run independent DB reads in parallel (all sync → thread pool)
+        # ------------------------------------------------------------------
+        def _fetch_enrollments():
+            return sb.table("enrollments").select(
+                "courses(id, canvas_course_id, name, course_code)"
+            ).eq("user_id", user_id).execute()
 
-        courses = [r["courses"] for r in result.data if r.get("courses")]
-        if courses:
-            course_lines = "\n".join(
-                f"- {c['name']} (canvas_course_id: {c['canvas_course_id']})"
-                for c in courses
-            )
-            extra += f"\n## Student's enrolled courses\n{course_lines}\n"
+        def _fetch_chunks():
+            # Limit rows fetched — we only need metadata, not embeddings
+            return sb.table("index_chunks").select(
+                "source_id, metadata, source_type"
+            ).eq("course_id", course_id).in_(
+                "source_type", ["assignment", "quiz"]
+            ).limit(200).execute()
 
-        # If a specific course is selected, inject its upcoming assignments
+        def _fetch_cal_data():
+            # Fetch calendar sources + cached events in two quick calls
+            user_row = sb.table("users").select("calendar_sources").eq(
+                "id", user_id
+            ).single().execute()
+            cal_sources = (user_row.data or {}).get("calendar_sources") or []
+            if not cal_sources:
+                return []
+            cal_result = sb.table("calendar_cache").select(
+                "source_id, events, label"
+            ).eq("user_id", user_id).execute()
+            return cal_result.data or []
+
+        # Launch in parallel
+        gather_tasks = [asyncio.to_thread(_fetch_enrollments)]
         if course_id:
-            chunks = sb.table("index_chunks").select(
-                "source_id, metadata, content"
-            ).eq("course_id", course_id).eq("source_type", "assignment").execute()
+            gather_tasks.append(asyncio.to_thread(_fetch_chunks))
+        else:
+            gather_tasks.append(asyncio.sleep(0))          # no-op placeholder
+        gather_tasks.append(asyncio.to_thread(_fetch_cal_data))
 
-            if chunks.data:
-                seen = {}
-                for c in chunks.data:
-                    sid = c["source_id"]
-                    if sid not in seen:
-                        due = c["metadata"].get("due_at", "No due date")
-                        seen[sid] = f"- {c['metadata'].get('title', 'Untitled')} — due: {due}"
-                assignment_lines = "\n".join(seen.values())
-                extra += f"\n## Assignments in selected course\n{assignment_lines}\n"
-                extra += "\nUse this data to answer assignment questions directly without calling tools.\n"
+        results = await asyncio.gather(*gather_tasks, return_exceptions=True)
+        enroll_result, chunks_result, cal_rows = results
 
-    except Exception:
-        pass
+        # ------------------------------------------------------------------
+        # Process enrollments
+        # ------------------------------------------------------------------
+        if not isinstance(enroll_result, Exception):
+            courses = [r["courses"] for r in enroll_result.data if r.get("courses")]
+            if courses:
+                course_lines = "\n".join(
+                    f"- {c['name']} (canvas_course_id: {c['canvas_course_id']})"
+                    for c in courses
+                )
+                extra += f"\n## Student's enrolled courses\n{course_lines}\n"
+
+        # ------------------------------------------------------------------
+        # Process assignments / quizzes for selected course
+        # ------------------------------------------------------------------
+        if course_id and not isinstance(chunks_result, Exception) and chunks_result and chunks_result.data:
+            assignments_seen: dict = {}
+            exams_seen: dict       = {}
+            for c in chunks_result.data:
+                sid  = c["source_id"]
+                meta = c.get("metadata") or {}
+                due   = meta.get("due_at", "No due date")
+                title = meta.get("title", "Untitled")
+                if c["source_type"] == "assignment":
+                    if sid not in assignments_seen:
+                        tag = " [EXAM]" if meta.get("is_exam") else ""
+                        assignments_seen[sid] = f"- {title}{tag} — due: {due}"
+                elif c["source_type"] == "quiz":
+                    if sid not in exams_seen:
+                        tag   = " [EXAM]" if meta.get("is_exam") else " [QUIZ]"
+                        timed = f", {meta['time_limit']} min" if meta.get("time_limit") else ""
+                        exams_seen[sid] = f"- {title}{tag} — due: {due}{timed}"
+
+            if assignments_seen:
+                extra += "\n## Assignments in selected course\n" + "\n".join(assignments_seen.values()) + "\n"
+            if exams_seen:
+                extra += "\n## Quizzes & Exams in selected course\n" + "\n".join(exams_seen.values()) + "\n"
+            if assignments_seen or exams_seen:
+                extra += "\nUse this data to answer assignment and exam questions directly without calling tools.\n"
+
+        # ------------------------------------------------------------------
+        # Process calendar (cache only — never fetch live here)
+        # If cache is empty the AI will still work; calendar syncs separately.
+        # ------------------------------------------------------------------
+        if not isinstance(cal_rows, Exception) and cal_rows:
+            window_end_date = (now + timedelta(days=90)).date().isoformat()
+            now_date        = now.date().isoformat()
+            all_events = []
+            for row in cal_rows:
+                cal_label = row.get("label", "Calendar")
+                for e in (row.get("events") or []):
+                    start_str = e.get("start", "")
+                    end_str   = e.get("end", "")
+                    if not start_str:
+                        continue
+                    start_date = start_str[:10]
+                    end_date   = end_str[:10] if end_str else start_date
+                    if (start_date <= window_end_date) and (end_date >= now_date):
+                        e_copy = dict(e)
+                        e_copy["_cal"] = cal_label
+                        all_events.append(e_copy)
+
+            if all_events:
+                all_events.sort(key=lambda e: e.get("start", ""))
+                cal_lines = []
+                for e in all_events[:40]:   # cap at 40 — enough context, smaller prompt
+                    try:
+                        start = datetime.fromisoformat(e["start"])
+                        end   = datetime.fromisoformat(e["end"])
+                        is_multiday = end.date() > start.date()
+                        is_all_day  = e.get("all_day", False)
+                        if is_multiday:
+                            date_str = f"{start.strftime('%a %d %b')}–{end.strftime('%a %d %b')}"
+                        else:
+                            date_str = start.strftime("%a %d %b")
+                        time_str = "all day" if is_all_day else f"{start.strftime('%H:%M')}–{end.strftime('%H:%M')}"
+                        loc      = f" @ {e['location']}" if e.get("location") else ""
+                        src_tag  = f" [{e['_cal']}]"     if e.get("_cal")      else ""
+                        cal_lines.append(f"- {date_str}  {time_str}  {e.get('title','')}{loc}{src_tag}")
+                    except Exception:
+                        pass
+                if cal_lines:
+                    extra += "\n## Student's calendar (next 90 days)\n" + "\n".join(cal_lines) + "\n"
+                    extra += (
+                        "\nIMPORTANT: Multi-day events block ALL days in the range shown."
+                        " Do NOT ask the student for their schedule — it is fully loaded above.\n"
+                    )
+
+    except Exception as e:
+        logger.warning("System prompt build error (non-fatal): %s", e)
 
     return SYSTEM_PROMPT + extra
 

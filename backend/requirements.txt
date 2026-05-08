@@ -24,9 +24,16 @@ resend>=2.0.0
 # SSE streaming
 sse-starlette>=2.1.0
 
+# File uploads (multipart/form-data support for FastAPI)
+python-multipart>=0.0.9
+
 # PDF extraction
 pypdf>=6.8.0
 
 # RAG / embeddings (pgvector replaces ChromaDB)
 sentence-transformers>=3.0.0
 numpy>=1.26.0
+
+# Calendar (iCal parsing)
+icalendar>=6.0.0
+python-dateutil>=2.9.0
