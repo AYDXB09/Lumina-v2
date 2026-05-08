@@ -114,10 +114,53 @@ AI_PROVIDER=nvidia      → NvidiaProvider  (NVIDIA NIM — Llama, DeepSeek etc.
 - Llama + DeepSeek on NVIDIA: tool loop disabled — uses pre-injected context instead (faster, fewer API calls)
   - Controlled by `MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")` in `backend/chat/engine.py`
 
-**Currently running:** NVIDIA NIM with `meta/llama-3.3-70b-instruct`
+**Currently running:** NVIDIA NIM with `deepseek-ai/deepseek-v4-pro`
 
 **Performance:** When a course is selected, assignments + quizzes/exams + calendar events are all pre-injected
 into the system prompt → 1 AI call per message (no tool loop overhead).
+
+---
+
+## Railway Deployment
+
+**Status:** In progress — account created, GitHub repo connected, env vars set, first deploy triggered.
+
+### Deployed service
+- **Platform:** Railway (railway.app)
+- **Account:** AYDXB09 (GitHub SSO)
+- **Repo:** AYDXB09/Lumina-v2 — auto-deploys on every push to `main`
+- **URL:** pending (assigned after first successful deploy)
+
+### Environment variables set in Railway Shared Variables
+| Variable | Notes |
+|---|---|
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_KEY` | Service role key (not anon key) |
+| `JWT_SECRET` | Same as local .env |
+| `ENCRYPTION_KEY` | Fernet key for Canvas token encryption |
+| `AI_PROVIDER` | `nvidia` |
+| `NVIDIA_API_KEY` | NVIDIA NIM API key |
+| `NVIDIA_API_URL` | `https://integrate.api.nvidia.com/v1` |
+| `NVIDIA_MODEL` | `deepseek-ai/deepseek-v4-pro` |
+| `REFRESH_EXPIRE_DAYS` | `90` |
+| `RESEND_API_KEY` | Resend transactional email |
+| `ALLOWED_ORIGINS` | **Pending** — add Railway public URL once assigned |
+
+### Post-deploy checklist
+- [ ] Add `ALLOWED_ORIGINS=https://<your-app>.up.railway.app` to Railway variables
+- [ ] Verify `/health` endpoint returns `{"status": "ok"}`
+- [ ] Test login with Canvas API key
+- [ ] Enable "Remove on Inactivity" in Railway service settings (sleep when idle = no wasted credits)
+
+### Local vs Railway workflow
+- **Daily dev:** `./dev.sh` (localhost only — free, instant restarts)
+- **External testing:** push to GitHub → Railway auto-deploys in ~3 min
+- **Cost:** Railway Hobby $5/month + $5 credit. "Remove on Inactivity" keeps costs near zero when not actively testing.
+
+### Architecture note
+FastAPI serves the React build as a SPA catch-all. The Dockerfile builds the frontend
+(`npm run build`) and copies `dist/` into `backend/static/` before starting uvicorn.
+Single Railway service, single public URL — no separate frontend hosting needed.
 
 ---
 
@@ -437,7 +480,7 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 - [x] Personal calendars in compact 2×2 grid in Settings
 
 ### Phase 1 — Remaining
-- [ ] Deploy to Railway
+- [ ] Complete Railway deployment (account created, repo connected, env vars set — ALLOWED_ORIGINS pending)
 - [ ] Study plan generation (AI prompt + UI — calendar context is ready, prompt/UX not built)
 
 ### Phase 2 — Full student experience
