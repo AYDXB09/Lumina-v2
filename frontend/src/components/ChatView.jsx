@@ -90,6 +90,10 @@ export default function ChatView({
   const sessionIdRef  = useRef(session?.id ?? null);
   const sendTimeRef   = useRef(null);  // Date.now() when message was sent
   const timerRef      = useRef(null);  // setInterval handle
+  const messagesRef   = useRef([]);    // always-current messages (avoids stale closure in registerSend)
+
+  // Keep messagesRef in sync so stale closures (registerSend) always see current messages
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   // Live elapsed-time counter while loading
   useEffect(() => {
@@ -215,7 +219,7 @@ export default function ChatView({
           .join("");
 
     const userMsg = { role: "user", content: textContent || text };
-    const newMessages = [...messages, userMsg];
+    const newMessages = [...messagesRef.current, userMsg];
     setMessages(newMessages);
     setLoading(true);
     setStreamingText("");

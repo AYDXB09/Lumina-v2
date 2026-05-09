@@ -144,10 +144,10 @@ into the system prompt → 1 AI call per message (no tool loop overhead).
 | `NVIDIA_MODEL` | `deepseek-ai/deepseek-v4-pro` |
 | `REFRESH_EXPIRE_DAYS` | `90` |
 | `RESEND_API_KEY` | Resend transactional email |
-| `ALLOWED_ORIGINS` | **Pending** — add Railway public URL once assigned |
+| `ALLOWED_ORIGINS` | `https://lumina-v2-production.up.railway.app` |
 
 ### Post-deploy checklist
-- [ ] Add `ALLOWED_ORIGINS=https://<your-app>.up.railway.app` to Railway variables
+- [x] Add `ALLOWED_ORIGINS=https://lumina-v2-production.up.railway.app` to Railway variables
 - [ ] Verify `/health` endpoint returns `{"status": "ok"}`
 - [ ] Test login with Canvas API key
 - [ ] Enable "Remove on Inactivity" in Railway service settings (sleep when idle = no wasted credits)
@@ -313,9 +313,15 @@ SettingsModal shows "Admin KB" tab for matching roles.
 - DeepSeek + Llama models: tool loop disabled (MODELS_WITHOUT_TOOL_SUPPORT in engine.py)
   — pre-injected context is sufficient for common queries, avoids extra NVIDIA API calls
 
+### Stream Reliability (engine.py)
+- Direct stream path (DeepSeek/Llama) wrapped with `_aiter_with_timeout(60s)` per token
+- If NVIDIA NIM drops stream mid-response, frontend receives "*(Response stalled — please try again)*" instead of infinite silence
+- Timing logs on every request: `system_prompt_build=Xs prompt_chars=N` and `ttft=Xs model=...`
+- System prompt explicitly tells DeepSeek/Llama it has NO tool/search capability → prevents AI hallucinating "let me search your courses"
+
 ### System Prompt Injection (_build_system_prompt in engine.py)
 Injects in order:
-1. Today's date + underlying model name
+1. Today's date + underlying model name + tool capability note (has tools vs no tools)
 2. Student's enrolled courses
 3. If course selected: assignments (with `[EXAM]` tag) + quizzes/exams (with `[QUIZ]`/`[EXAM]` tags, time_limit)
 4. Calendar events from `calendar_cache` — 90-day forward window, all sources merged
@@ -396,6 +402,7 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **Response timer:** After each AI response, shows `⏱ 14.2s` badge below the message
 - Timer is **persistent on all assistant messages** — not just the latest one (removed `i === messages.length - 1` guard)
 - Timer uses `setInterval` every 100ms; `sendTimeRef` captures send time; `timerRef` holds interval handle; `_ms` stored on each message object
+- **`messagesRef`:** Always-current ref kept in sync with `messages` state via `useEffect`. `handleSend` reads from `messagesRef.current` instead of the `messages` closure — prevents stale closure bug where RightPanel "Ask AI" would wipe existing messages (and their timer badges) by spreading an empty initial array
 - **WelcomeScreen quick actions:** 4 course-specific buttons + 2 global; use `handleSend(overrideText)` pattern
 - `registerSend` prop: ChatView exposes `fireQuickAction` fn to App.jsx via callback; App stores in `chatSendRef`, passes to RightPanel as `onAskAI`
 
@@ -480,23 +487,40 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 - [x] Personal calendars in compact 2×2 grid in Settings
 
 ### Phase 1 — Remaining
-- [ ] Complete Railway deployment (account created, repo connected, env vars set — ALLOWED_ORIGINS pending)
+- [x] Complete Railway deployment — live at https://lumina-v2-production.up.railway.app
+- [x] Stream stall fix — `_aiter_with_timeout` wraps NVIDIA stream; 60s per-token timeout; error message sent to frontend instead of hanging
+- [x] Timer badge persistence fix — `messagesRef` prevents stale closure in `registerSend` from wiping messages
 - [ ] Study plan generation (AI prompt + UI — calendar context is ready, prompt/UX not built)
 
-### Phase 2 — Full student experience
+### Phase 2 — Subject Modules (start simple, validate with real students first)
+**Economics (IB + AP) — start here:**
+- [ ] `<EconGraph />` component — iframe wrapper for econgraphs.org, dark-themed, fullscreen toggle
+- [ ] AI trigger: AI outputs `[graph: slug]` tag → frontend renders inline EconGraph
+- [ ] Economics system prompt context — IB SL/HL vs AP Micro/Macro curriculum awareness
+- Diagrams needed: supply/demand, PPC, AD/AS, Phillips curve, cost curves (AP Micro/IB HL), money market (AP Macro)
+
+**Later subjects (same pattern, different tools):**
+- [ ] Maths/Physics graphs — Mafs (React-native, MIT license)
+- [ ] Chemistry 2D molecules — Ketcher (ePAM, Apache 2.0)
+- [ ] Chemistry/Biology 3D structures — Miew (ePAM, open source)
+- [ ] Physics simulations — PhET via iframe (MIT, free — NOT PhET-IO which costs $10k/yr)
+
+### Phase 3 — Full student experience
 - [ ] Adaptive quiz generator (port from v1)
+- [ ] Mastery tracking — `mastery_scores` table exists, nothing uses it yet
+- [ ] Step-by-step Socratic worked examples (problem-solving mode)
 - [ ] Voice mode (port from v1)
-- [ ] school_admin panel (AI model config, feature flags)
 - [ ] Parent consent flow + Resend email
 - [ ] Sign DPA with Dwight
 
-### Phase 3 — Monitoring
+### Phase 4 — School admin & monitoring
+- [ ] school_admin panel (AI model config, feature flags)
 - [ ] Teacher read-only view (per-student AI usage + quiz topics)
 - [ ] Audit trail + notifications
 
-### Phase 4 — Auth upgrade
+### Phase 5 — Auth upgrade
 - [ ] Canvas OAuth2 (requires Developer Key from Dwight admin)
 - [ ] LTI 1.3 (requires school IT)
 
-### Phase 5 — AWS path
+### Phase 6 — AWS path (for schools requiring it)
 - [ ] ECS Fargate + RDS Postgres + Bedrock + S3

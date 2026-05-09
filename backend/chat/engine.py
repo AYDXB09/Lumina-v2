@@ -23,6 +23,17 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 6
 
 
+async def _aiter_with_timeout(aiter, timeout_secs: float):
+    """Wrap an async iterator so each next() call times out independently."""
+    import asyncio
+    while True:
+        try:
+            chunk = await asyncio.wait_for(aiter.__anext__(), timeout=timeout_secs)
+            yield chunk
+        except StopAsyncIteration:
+            return
+
+
 def _sse(payload: dict | str) -> str:
     if isinstance(payload, str):
         return f"data: {payload}\n\n"
@@ -65,6 +76,9 @@ async def _run_openai_compat(
 
     if not tools_supported:
         # Direct stream — no tool loop overhead
+        import time as _time
+        import asyncio
+        t_api = _time.monotonic()
         stream = await client.chat.completions.create(
             model=model,
             messages=history,
@@ -72,10 +86,22 @@ async def _run_openai_compat(
             temperature=0.7,
             max_tokens=4096,
         )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield _sse({"type": "content", "text": delta})
+        first_token = True
+        TOKEN_TIMEOUT = 60  # seconds between tokens — if exceeded, stream is dead
+        try:
+            async for chunk in _aiter_with_timeout(stream.__aiter__(), TOKEN_TIMEOUT):
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    if first_token:
+                        logger.info("ttft=%.3fs model=%s", _time.monotonic() - t_api, model)
+                        first_token = False
+                    yield _sse({"type": "content", "text": delta})
+        except asyncio.TimeoutError:
+            logger.error("Stream stalled — no token for %ds (model=%s)", TOKEN_TIMEOUT, model)
+            yield _sse({"type": "content", "text": "\n\n*(Response stalled — the AI stopped mid-way. Please try again.)*"})
+        except Exception as e:
+            logger.error("Stream error mid-response: %s", e)
+            yield _sse({"type": "content", "text": "\n\n*(Connection lost mid-response. Please try again.)*"})
         yield _sse("[DONE]")
         return
 
@@ -242,11 +268,22 @@ async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
         config.OPENROUTER_MODEL if config.AI_PROVIDER == "openrouter" else
         config.K2_MODEL
     )
+    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")
+    has_tools = not any(m in model_name.lower() for m in MODELS_WITHOUT_TOOL_SUPPORT)
+    tool_note = (
+        "You have access to tools: get_assignments, get_announcements, search_course_content."
+        if has_tools else
+        "You do NOT have search or tool capabilities in this session. "
+        "Answer only from the course context provided above. "
+        "If asked to search or look something up, say you can only answer from the loaded context "
+        "and suggest the student select a specific course to get richer answers."
+    )
     extra = (
         f"\n\n## System info\n"
         f"Today's date: {today}\n"
         f"Underlying AI model: {model_name}\n"
         f"Only mention assignments due AFTER today as 'upcoming'.\n"
+        f"{tool_note}\n"
     )
 
     try:
@@ -396,12 +433,15 @@ async def run_chat(
     Run the tool-call loop and stream the final response.
     Picks the right engine based on AI_PROVIDER.
     """
+    import time as _time
     from providers.ai import get_ai_provider
     provider = get_ai_provider()
     executor = ToolExecutor(user_id, school_id, course_id)
 
     # Pre-inject course list — skips get_courses tool call on first turn
+    t0 = _time.monotonic()
     system = await _build_system_prompt(user_id, course_id)
+    logger.info("system_prompt_build=%.3fs prompt_chars=%d", _time.monotonic() - t0, len(system))
 
     provider_name = (config.AI_PROVIDER or "k2").lower()
 
