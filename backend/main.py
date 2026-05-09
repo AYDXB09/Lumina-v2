@@ -113,9 +113,16 @@ app.include_router(admin_router)
 
 @app.get("/health", tags=["platform"])
 async def health():
+    model = (
+        config.NVIDIA_MODEL     if config.AI_PROVIDER == "nvidia"     else
+        config.ANTHROPIC_MODEL  if config.AI_PROVIDER == "anthropic"  else
+        config.OPENROUTER_MODEL if config.AI_PROVIDER == "openrouter" else
+        config.K2_MODEL
+    )
     return {
         "status": "ok",
         "provider": config.AI_PROVIDER,
+        "model": model,
     }
 
 

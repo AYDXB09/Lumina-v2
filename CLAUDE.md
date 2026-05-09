@@ -114,7 +114,7 @@ AI_PROVIDER=nvidia      → NvidiaProvider  (NVIDIA NIM — Llama, DeepSeek etc.
 - Llama + DeepSeek on NVIDIA: tool loop disabled — uses pre-injected context instead (faster, fewer API calls)
   - Controlled by `MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")` in `backend/chat/engine.py`
 
-**Currently running:** NVIDIA NIM with `deepseek-ai/deepseek-v4-pro`
+**Currently running:** NVIDIA NIM with `meta/llama-3.3-70b-instruct` (switched from deepseek-ai/deepseek-v4-pro — DeepSeek was too slow, 40-100s TTFT)
 
 **Performance:** When a course is selected, assignments + quizzes/exams + calendar events are all pre-injected
 into the system prompt → 1 AI call per message (no tool loop overhead).
