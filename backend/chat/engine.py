@@ -324,22 +324,66 @@ async def _build_system_prompt(
             return cal_result.data or []
 
         # Launch in parallel
-        from rag.search import search as rag_search, format_context
+        from rag.search import format_context
 
-        async def _fetch_rag():
-            """Proactive RAG — inject top-4 relevant chunks for the student's question."""
+        def _fetch_rag_sync():
+            """
+            Proactive RAG — runs entirely in a thread so embed_one() (CPU-bound)
+            and the Supabase RPC (blocking I/O) never block the event loop.
+            """
             if not last_message or not course_id:
                 return []
+            from rag.embedder import embed_one
+            from db.client import get_supabase as _get_sb
             try:
-                return await rag_search(
-                    query=last_message,
-                    course_id=course_id,
-                    user_id=user_id,
-                    k=4,
-                    threshold=0.25,
-                )
+                vector = embed_one(last_message)
+                _sb = _get_sb()
+                results = []
+                resp = _sb.rpc("match_index_chunks", {
+                    "query_embedding": vector,
+                    "match_course_id": course_id,
+                    "match_threshold": 0.25,
+                    "match_count": 4,
+                }).execute()
+                for row in (resp.data or []):
+                    results.append({
+                        "text":        row["content"],
+                        "source_type": row.get("source_type", "course"),
+                        "title":       row.get("metadata", {}).get("title", ""),
+                        "relevance":   round(row.get("similarity", 0), 4),
+                        "source":      "canvas",
+                    })
+                # Also search student materials
+                if user_id:
+                    resp2 = _sb.rpc("match_student_materials", {
+                        "query_embedding": vector,
+                        "match_user_id":   user_id,
+                        "match_course_id": course_id,
+                        "match_threshold": 0.25,
+                        "match_count":     2,
+                    }).execute()
+                    for row in (resp2.data or []):
+                        results.append({
+                            "text":        row["content"],
+                            "source_type": "student_material",
+                            "title":       row.get("filename", ""),
+                            "relevance":   round(row.get("similarity", 0), 4),
+                            "source":      "student",
+                        })
+                results.sort(key=lambda x: x["relevance"], reverse=True)
+                return results[:4]
             except Exception as e:
                 logger.warning("Proactive RAG failed (non-fatal): %s", e)
+                return []
+
+        async def _fetch_rag_timed():
+            """RAG with 3s timeout — skip silently if slow, never delay the response."""
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(_fetch_rag_sync), timeout=3.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Proactive RAG timed out (>3s) — skipping")
                 return []
 
         gather_tasks = [asyncio.to_thread(_fetch_enrollments)]
@@ -348,7 +392,7 @@ async def _build_system_prompt(
         else:
             gather_tasks.append(asyncio.sleep(0))          # no-op placeholder
         gather_tasks.append(asyncio.to_thread(_fetch_cal_data))
-        gather_tasks.append(_fetch_rag())
+        gather_tasks.append(_fetch_rag_timed())
 
         results = await asyncio.gather(*gather_tasks, return_exceptions=True)
         enroll_result, chunks_result, cal_rows, rag_results = results
