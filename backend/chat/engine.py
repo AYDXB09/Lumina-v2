@@ -245,18 +245,13 @@ async def _run_anthropic(
 # Public entry point                                                  #
 # ------------------------------------------------------------------ #
 
-async def _build_system_prompt(
-    user_id: str,
-    course_id: str | None,
-    last_message: str | None = None,
-) -> str:
+async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
     """
     Build a rich system prompt by injecting:
     - Current date
     - Enrolled courses
     - Upcoming assignments + quizzes for the selected course
     - Calendar events from cache (never fetches live — avoids blocking the hot path)
-    - Proactive RAG: top-4 semantically relevant chunks for the student's question
 
     All Supabase queries run in a thread pool and are launched in parallel with
     asyncio.gather to minimise latency before the first AI token.
@@ -278,10 +273,10 @@ async def _build_system_prompt(
     tool_note = (
         "You have access to tools: get_assignments, get_announcements, search_course_content."
         if has_tools else
-        "You do NOT have live search tools. However, the most relevant course content for the "
-        "student's question has been automatically injected below under '## Relevant course content'. "
-        "Answer from that injected content. Do NOT say you cannot search — the search has already "
-        "been done for you. If the injected content does not contain the answer, say so honestly."
+        "You do NOT have search or tool capabilities in this session. "
+        "Answer only from the course context provided above. "
+        "If the answer is not in the loaded context, say so honestly and suggest "
+        "the student check Canvas directly or select a specific course for richer answers."
     )
     extra = (
         f"\n\n## System info\n"
@@ -324,78 +319,15 @@ async def _build_system_prompt(
             return cal_result.data or []
 
         # Launch in parallel
-        from rag.search import format_context
-
-        def _fetch_rag_sync():
-            """
-            Proactive RAG — runs entirely in a thread so embed_one() (CPU-bound)
-            and the Supabase RPC (blocking I/O) never block the event loop.
-            """
-            if not last_message or not course_id:
-                return []
-            from rag.embedder import embed_one
-            from db.client import get_supabase as _get_sb
-            try:
-                vector = embed_one(last_message)
-                _sb = _get_sb()
-                results = []
-                resp = _sb.rpc("match_index_chunks", {
-                    "query_embedding": vector,
-                    "match_course_id": course_id,
-                    "match_threshold": 0.25,
-                    "match_count": 4,
-                }).execute()
-                for row in (resp.data or []):
-                    results.append({
-                        "text":        row["content"],
-                        "source_type": row.get("source_type", "course"),
-                        "title":       row.get("metadata", {}).get("title", ""),
-                        "relevance":   round(row.get("similarity", 0), 4),
-                        "source":      "canvas",
-                    })
-                # Also search student materials
-                if user_id:
-                    resp2 = _sb.rpc("match_student_materials", {
-                        "query_embedding": vector,
-                        "match_user_id":   user_id,
-                        "match_course_id": course_id,
-                        "match_threshold": 0.25,
-                        "match_count":     2,
-                    }).execute()
-                    for row in (resp2.data or []):
-                        results.append({
-                            "text":        row["content"],
-                            "source_type": "student_material",
-                            "title":       row.get("filename", ""),
-                            "relevance":   round(row.get("similarity", 0), 4),
-                            "source":      "student",
-                        })
-                results.sort(key=lambda x: x["relevance"], reverse=True)
-                return results[:4]
-            except Exception as e:
-                logger.warning("Proactive RAG failed (non-fatal): %s", e)
-                return []
-
-        async def _fetch_rag_timed():
-            """RAG with 3s timeout — skip silently if slow, never delay the response."""
-            try:
-                return await asyncio.wait_for(
-                    asyncio.to_thread(_fetch_rag_sync), timeout=3.0
-                )
-            except asyncio.TimeoutError:
-                logger.warning("Proactive RAG timed out (>3s) — skipping")
-                return []
-
         gather_tasks = [asyncio.to_thread(_fetch_enrollments)]
         if course_id:
             gather_tasks.append(asyncio.to_thread(_fetch_chunks))
         else:
             gather_tasks.append(asyncio.sleep(0))          # no-op placeholder
         gather_tasks.append(asyncio.to_thread(_fetch_cal_data))
-        gather_tasks.append(_fetch_rag_timed())
 
         results = await asyncio.gather(*gather_tasks, return_exceptions=True)
-        enroll_result, chunks_result, cal_rows, rag_results = results
+        enroll_result, chunks_result, cal_rows = results
 
         # ------------------------------------------------------------------
         # Process enrollments
@@ -485,17 +417,6 @@ async def _build_system_prompt(
                         " Do NOT ask the student for their schedule — it is fully loaded above.\n"
                     )
 
-        # ------------------------------------------------------------------
-        # Proactive RAG — inject relevant course content for the question
-        # Runs in parallel with other queries so adds near-zero latency.
-        # ------------------------------------------------------------------
-        if rag_results and not isinstance(rag_results, Exception) and len(rag_results) > 0:
-            context_block = format_context(rag_results)
-            if context_block:
-                extra += f"\n{context_block}\n"
-                extra += "Use the above course content to answer the student's question directly and accurately.\n"
-                logger.info("proactive_rag chunks=%d", len(rag_results))
-
     except Exception as e:
         logger.warning("System prompt build error (non-fatal): %s", e)
 
@@ -517,15 +438,9 @@ async def run_chat(
     provider = get_ai_provider()
     executor = ToolExecutor(user_id, school_id, course_id)
 
-    # Pre-inject course list + proactive RAG for the student's question
+    # Pre-inject course list — skips get_courses tool call on first turn
     t0 = _time.monotonic()
-    last_message = next(
-        (m["content"] for m in reversed(messages) if m.get("role") == "user"), None
-    )
-    # Strip to first 500 chars for embedding — enough signal, avoids slow encode on long pastes
-    if last_message:
-        last_message = last_message[:500]
-    system = await _build_system_prompt(user_id, course_id, last_message)
+    system = await _build_system_prompt(user_id, course_id)
     logger.info("system_prompt_build=%.3fs prompt_chars=%d", _time.monotonic() - t0, len(system))
 
     provider_name = (config.AI_PROVIDER or "k2").lower()
