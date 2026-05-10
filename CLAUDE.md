@@ -114,7 +114,7 @@ AI_PROVIDER=nvidia      → NvidiaProvider  (NVIDIA NIM — Llama, DeepSeek etc.
 - Llama + DeepSeek on NVIDIA: tool loop disabled — uses pre-injected context instead (faster, fewer API calls)
   - Controlled by `MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")` in `backend/chat/engine.py`
 
-**Currently running:** NVIDIA NIM with `meta/llama-3.3-70b-instruct` (switched from deepseek-ai/deepseek-v4-pro — DeepSeek was too slow, 40-100s TTFT)
+**Currently running:** NVIDIA NIM with `meta/llama-3.1-8b-instruct` (switched from llama-3.3-70b — 70B was too slow, 24-35s TTFT; 8B targets 5-10s)
 
 **Performance:** When a course is selected, assignments + quizzes/exams + calendar events are all pre-injected
 into the system prompt → 1 AI call per message (no tool loop overhead).
@@ -141,7 +141,7 @@ into the system prompt → 1 AI call per message (no tool loop overhead).
 | `AI_PROVIDER` | `nvidia` |
 | `NVIDIA_API_KEY` | NVIDIA NIM API key |
 | `NVIDIA_API_URL` | `https://integrate.api.nvidia.com/v1` |
-| `NVIDIA_MODEL` | `deepseek-ai/deepseek-v4-pro` |
+| `NVIDIA_MODEL` | `meta/llama-3.1-8b-instruct` |
 | `REFRESH_EXPIRE_DAYS` | `90` |
 | `RESEND_API_KEY` | Resend transactional email |
 | `ALLOWED_ORIGINS` | `https://lumina-v2-production.up.railway.app` |

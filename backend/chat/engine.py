@@ -63,10 +63,13 @@ async def _run_openai_compat(
     model = provider._model
 
     # Skip tool loop when:
-    # 1. Model doesn't support OpenAI-style function calling (e.g. DeepSeek)
+    # 1. Model doesn't support OpenAI-style function calling (e.g. DeepSeek on NVIDIA)
     # 2. Course context is already injected in system prompt (course_id present)
-    #    — avoids tripling NVIDIA API calls for common questions
-    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")
+    #    — avoids extra API calls for common questions
+    # Note: "llama" is excluded on NVIDIA (tool calls hang) but NOT on Groq (works fine)
+    provider_name = type(provider).__name__.lower()  # "groqprovider", "nvidiaprovider", etc.
+    is_nvidia = "nvidia" in provider_name
+    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek",) + (("llama",) if is_nvidia else ())
     model_name = model.lower()
     context_preloaded = "## Assignments in selected course" in system
     tools_supported = (
@@ -266,10 +269,13 @@ async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
         config.NVIDIA_MODEL     if config.AI_PROVIDER == "nvidia"     else
         config.ANTHROPIC_MODEL  if config.AI_PROVIDER == "anthropic"  else
         config.OPENROUTER_MODEL if config.AI_PROVIDER == "openrouter" else
+        config.GROQ_MODEL       if config.AI_PROVIDER == "groq"       else
         config.K2_MODEL
     )
-    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")
-    has_tools = not any(m in model_name.lower() for m in MODELS_WITHOUT_TOOL_SUPPORT)
+    # On NVIDIA, Llama models don't support tool calls (hang). On Groq they do.
+    is_nvidia_provider = config.AI_PROVIDER == "nvidia"
+    _no_tool_models = ("deepseek",) + (("llama",) if is_nvidia_provider else ())
+    has_tools = not any(m in model_name.lower() for m in _no_tool_models)
     tool_note = (
         "You have access to tools: get_assignments, get_announcements, search_course_content."
         if has_tools else
@@ -449,5 +455,6 @@ async def run_chat(
         async for chunk in _run_anthropic(messages, executor, provider, system):
             yield chunk
     else:
+        # k2, openrouter, nvidia, groq — all OpenAI-compatible
         async for chunk in _run_openai_compat(messages, executor, provider, system):
             yield chunk

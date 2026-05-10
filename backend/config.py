@@ -29,7 +29,7 @@ class Config:
     # ------------------------------------------------------------------ #
     # AI Providers                                                         #
     # ------------------------------------------------------------------ #
-    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "k2")  # k2 | openrouter | anthropic | nvidia
+    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "k2")  # k2 | openrouter | anthropic | nvidia | groq
 
     # K2-Think-v2 (direct)
     K2_API_KEY: str = os.getenv("K2_API_KEY", "")
@@ -49,6 +49,10 @@ class Config:
     NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
     NVIDIA_API_URL: str = os.getenv("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1")
     NVIDIA_MODEL: str   = os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-r1-0528")
+
+    # Groq (LPU — ultra-fast inference)
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL: str   = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
     # ------------------------------------------------------------------ #
     # Email — Resend                                                       #

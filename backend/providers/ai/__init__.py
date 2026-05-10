@@ -6,6 +6,7 @@ Which provider is used is controlled by AI_PROVIDER env var:
   openrouter  → OpenRouter (access to many models)
   anthropic   → Anthropic Claude
   nvidia      → NVIDIA NIM (DeepSeek, Llama, etc.)
+  groq        → Groq LPU (ultra-fast, llama-3.1-8b-instant default)
 
 School admins can override per-school via ai_config table (future).
 """
@@ -28,6 +29,9 @@ def get_ai_provider() -> AIProvider:
     elif provider == "nvidia":
         from providers.ai.nvidia import NvidiaProvider
         return NvidiaProvider()
+    elif provider == "groq":
+        from providers.ai.groq import GroqProvider
+        return GroqProvider()
     else:
         from providers.ai.k2 import K2Provider
         return K2Provider()

@@ -117,6 +117,7 @@ async def health():
         config.NVIDIA_MODEL     if config.AI_PROVIDER == "nvidia"     else
         config.ANTHROPIC_MODEL  if config.AI_PROVIDER == "anthropic"  else
         config.OPENROUTER_MODEL if config.AI_PROVIDER == "openrouter" else
+        config.GROQ_MODEL       if config.AI_PROVIDER == "groq"       else
         config.K2_MODEL
     )
     return {
