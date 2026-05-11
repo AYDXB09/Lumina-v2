@@ -7,6 +7,7 @@ POST /api/chat/sessions  — create a new session
 GET  /api/chat/sessions/{id}/messages — load message history
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -78,12 +79,31 @@ async def chat_stream(body: ChatRequest, user=Depends(get_current_student)):
         full_response = []
         stream_start = time.monotonic()
         try:
-            async for chunk in run_chat(
+            # Wrap the async generator to keep the Railway reverse-proxy alive.
+            # Railway (and most proxies) close idle SSE connections after ~30s.
+            # The AI often takes 30-40s before the first token arrives.
+            # Every 5s of silence we emit an SSE comment (": heartbeat") which
+            # is invisible to the browser EventSource but resets the proxy timer.
+            HEARTBEAT_INTERVAL = 5.0  # seconds
+            aiter = run_chat(
                 messages=body.messages,
                 user_id=user["sub"],
                 school_id=user["school"],
                 course_id=body.course_id,
-            ):
+            ).__aiter__()
+
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(
+                        aiter.__anext__(), timeout=HEARTBEAT_INTERVAL
+                    )
+                except asyncio.TimeoutError:
+                    # No token yet — ping the proxy to stay alive
+                    yield ": heartbeat\n\n"
+                    continue
+                except StopAsyncIteration:
+                    break
+
                 yield chunk
                 # Collect content chunks to persist
                 try:
@@ -94,6 +114,7 @@ async def chat_stream(body: ChatRequest, user=Depends(get_current_student)):
                             full_response.append(parsed["text"])
                 except Exception:
                     pass
+
         except Exception as e:
             logger.error("Chat stream error: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
