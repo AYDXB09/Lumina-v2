@@ -63,13 +63,10 @@ async def _run_openai_compat(
     model = provider._model
 
     # Skip tool loop when:
-    # 1. Model doesn't support OpenAI-style function calling (e.g. DeepSeek on NVIDIA)
+    # 1. Model doesn't support OpenAI-style function calling (e.g. DeepSeek, Llama)
     # 2. Course context is already injected in system prompt (course_id present)
     #    — avoids extra API calls for common questions
-    # Note: "llama" is excluded on NVIDIA (tool calls hang) but NOT on Groq (works fine)
-    provider_name = type(provider).__name__.lower()  # "groqprovider", "nvidiaprovider", etc.
-    is_nvidia = "nvidia" in provider_name
-    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek",) + (("llama",) if is_nvidia else ())
+    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")
     model_name = model.lower()
     context_preloaded = "## Assignments in selected course" in system
     tools_supported = (
@@ -80,34 +77,18 @@ async def _run_openai_compat(
     import time as _time
     import asyncio
 
-    CONNECT_TIMEOUT = 30   # max seconds to wait for the API to accept the request
-    TOKEN_TIMEOUT   = 45   # max seconds between tokens once streaming has started
+    TOKEN_TIMEOUT = 60  # seconds between tokens — if exceeded, stream is dead
 
     if not tools_supported:
         # Direct stream — no tool loop overhead
         t_api = _time.monotonic()
-        try:
-            stream = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=model,
-                    messages=history,
-                    stream=True,
-                    temperature=0.7,
-                    max_tokens=4096,
-                ),
-                timeout=CONNECT_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.error("API connection timeout after %ds (model=%s)", CONNECT_TIMEOUT, model)
-            yield _sse({"type": "content", "text": "*(The AI took too long to respond. Please try again.)*"})
-            yield _sse("[DONE]")
-            return
-        except Exception as e:
-            logger.error("API connection error (model=%s): %s", model, e)
-            yield _sse({"type": "content", "text": "*(Could not reach the AI. Please try again.)*"})
-            yield _sse("[DONE]")
-            return
-
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=history,
+            stream=True,
+            temperature=0.7,
+            max_tokens=4096,
+        )
         first_token = True
         try:
             async for chunk in _aiter_with_timeout(stream.__aiter__(), TOKEN_TIMEOUT):
@@ -119,10 +100,8 @@ async def _run_openai_compat(
                     yield _sse({"type": "content", "text": delta})
         except asyncio.TimeoutError:
             logger.error("Stream stalled — no token for %ds (model=%s)", TOKEN_TIMEOUT, model)
-            yield _sse({"type": "content", "text": "\n\n*(Response stalled — the AI stopped mid-way. Please try again.)*"})
         except Exception as e:
             logger.error("Stream error mid-response: %s", e)
-            yield _sse({"type": "content", "text": "\n\n*(Connection lost mid-response. Please try again.)*"})
         yield _sse("[DONE]")
         return
 
@@ -141,22 +120,7 @@ async def _run_openai_compat(
             kwargs["tools"] = TOOL_DEFINITIONS
             kwargs["tool_choice"] = "auto"
 
-        try:
-            response = await asyncio.wait_for(
-                client.chat.completions.create(**kwargs),
-                timeout=CONNECT_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.error("Tool loop timeout round=%d (model=%s)", round_num, model)
-            yield _sse({"type": "content", "text": "*(The AI took too long to respond. Please try again.)*"})
-            yield _sse("[DONE]")
-            return
-        except Exception as e:
-            logger.error("Tool loop error round=%d (model=%s): %s", round_num, model, e)
-            yield _sse({"type": "content", "text": "*(Could not reach the AI. Please try again.)*"})
-            yield _sse("[DONE]")
-            return
-
+        response = await client.chat.completions.create(**kwargs)
         choice = response.choices[0]
         message = choice.message
 
@@ -179,30 +143,20 @@ async def _run_openai_compat(
             # Final response — stream it
             history.append({"role": "assistant", "content": message.content})
 
-            try:
-                stream = await asyncio.wait_for(
-                    client.chat.completions.create(
-                        model=model,
-                        messages=history,
-                        stream=True,
-                        temperature=0.7,
-                        max_tokens=4096,
-                    ),
-                    timeout=CONNECT_TIMEOUT,
-                )
-            except asyncio.TimeoutError:
-                logger.error("Final stream timeout (model=%s)", model)
-                yield _sse({"type": "content", "text": "*(The AI took too long to respond. Please try again.)*"})
-                yield _sse("[DONE]")
-                return
-
+            stream = await client.chat.completions.create(
+                model=model,
+                messages=history,
+                stream=True,
+                temperature=0.7,
+                max_tokens=4096,
+            )
             try:
                 async for chunk in _aiter_with_timeout(stream.__aiter__(), TOKEN_TIMEOUT):
                     delta = chunk.choices[0].delta.content
                     if delta:
                         yield _sse({"type": "content", "text": delta})
             except asyncio.TimeoutError:
-                yield _sse({"type": "content", "text": "\n\n*(Response stalled mid-way. Please try again.)*"})
+                logger.error("Stream stalled mid-response (model=%s)", model)
             except Exception as e:
                 logger.error("Final stream error (model=%s): %s", model, e)
 
