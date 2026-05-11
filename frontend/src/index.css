@@ -395,3 +395,69 @@ input, textarea { font-family: inherit; }
 }
 .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
 .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* ------------------------------------------------------------------ */
+/* Interactive Widget (EconGraphs / Desmos / PhET)                    */
+/* ------------------------------------------------------------------ */
+
+.iwidget-wrap {
+  margin: 12px 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.iwidget-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 14px;
+  background: var(--color-surface-2);
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: left;
+  transition: background 0.15s;
+}
+.iwidget-header:hover { background: var(--color-border); }
+
+.iwidget-icon   { font-size: 15px; }
+.iwidget-title  { flex: 1; }
+.iwidget-chevron { font-size: 10px; color: var(--color-text-faint); }
+
+.iwidget-body { background: #fff; }
+
+.iwidget-frame {
+  display: block;
+  width: 100%;
+  height: 420px;
+  border: none;
+}
+
+.iwidget-attrib {
+  padding: 5px 12px;
+  font-size: 11px;
+  color: var(--color-text-faint);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+}
+.iwidget-attrib a {
+  color: var(--color-text-faint);
+  text-decoration: none;
+}
+.iwidget-attrib a:hover { text-decoration: underline; }
+
+.iwidget-unknown {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: #7c5200;
+}

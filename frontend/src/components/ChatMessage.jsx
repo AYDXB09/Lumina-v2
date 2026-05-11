@@ -20,6 +20,7 @@ import katex from "katex";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import LuminaLogo from "./LuminaLogo.jsx";
+import InteractiveWidget from "./InteractiveWidget.jsx";
 import { useSettings } from "../contexts/SettingsContext.jsx";
 
 // ---- Configure marked ----
@@ -87,14 +88,40 @@ function renderMarkdown(raw) {
   });
 }
 
+// ------------------------------------------------------------------ //
+// Interactive widget marker parser                                    //
+// Splits AI content into text segments and [MARKER: id] segments.    //
+// Supports: ECONGRAPH, DESMOS, PHET                                  //
+// ------------------------------------------------------------------ //
+
+const WIDGET_RE = /\[(ECONGRAPH|DESMOS|PHET):\s*([^\]]+)\]/g;
+
+function parseSegments(content) {
+  const segments = [];
+  let last = 0;
+  WIDGET_RE.lastIndex = 0;
+  let m;
+  while ((m = WIDGET_RE.exec(content)) !== null) {
+    if (m.index > last) {
+      segments.push({ type: "text", content: content.slice(last, m.index) });
+    }
+    segments.push({ type: "widget", marker: m[1], id: m[2].trim() });
+    last = m.index + m[0].length;
+  }
+  if (last < content.length) {
+    segments.push({ type: "text", content: content.slice(last) });
+  }
+  return segments;
+}
+
 // ---- Component ----
 export default function ChatMessage({ role, content, isStreaming = false }) {
   const isUser = role === "user";
   const { settings } = useSettings();
 
-  const html = useMemo(() => {
+  const segments = useMemo(() => {
     if (isUser) return null;
-    return renderMarkdown(content);
+    return parseSegments(content);
   }, [content, isUser]);
 
   return (
@@ -116,10 +143,17 @@ export default function ChatMessage({ role, content, isStreaming = false }) {
           <span style={{ whiteSpace: "pre-wrap" }}>{content}</span>
         ) : (
           <>
-            <div
-              className="md-body"
-              dangerouslySetInnerHTML={{ __html: html ?? "" }}
-            />
+            {segments?.map((seg, i) =>
+              seg.type === "widget" ? (
+                <InteractiveWidget key={i} marker={seg.marker} id={seg.id} />
+              ) : (
+                <div
+                  key={i}
+                  className="md-body"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(seg.content) }}
+                />
+              )
+            )}
             {isStreaming && <span className="msg-cursor">▊</span>}
           </>
         )}
