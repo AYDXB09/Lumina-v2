@@ -453,6 +453,21 @@ async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
                         " Do NOT ask the student for their schedule — it is fully loaded above.\n"
                     )
 
+        # ------------------------------------------------------------------
+        # Subject-specific prompt injection (economics graphs, etc.)
+        # Each module self-selects based on course name — zero cost for
+        # students not in that subject.
+        # ------------------------------------------------------------------
+        if course_id and not isinstance(enroll_result, Exception):
+            selected_course = next(
+                (r["courses"] for r in enroll_result.data
+                 if r.get("courses") and str(r["courses"].get("id")) == str(course_id)),
+                None,
+            )
+            if selected_course:
+                from chat.economics_graphs import inject_if_economics
+                extra = inject_if_economics(selected_course.get("name"), extra)
+
     except Exception as e:
         logger.warning("System prompt build error (non-fatal): %s", e)
 
