@@ -8,10 +8,13 @@ Get a key at: https://aistudio.google.com
 Base URL: https://generativelanguage.googleapis.com/v1beta/openai/
 """
 
+import logging
 from typing import AsyncIterator
 from openai import AsyncOpenAI
 from providers.ai.base import AIProvider
 from config import config
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiProvider(AIProvider):
@@ -36,17 +39,21 @@ class GeminiProvider(AIProvider):
             all_messages.append({"role": "system", "content": system})
         all_messages.extend(messages)
 
-        stream = await self._client.chat.completions.create(
-            model=self._model,
-            messages=all_messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-        )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+        try:
+            stream = await self._client.chat.completions.create(
+                model=self._model,
+                messages=all_messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        except Exception as e:
+            logger.error("Gemini stream error: %s", e)
+            raise
 
     async def complete(
         self,

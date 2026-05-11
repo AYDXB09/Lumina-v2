@@ -145,14 +145,14 @@ async def ai_ping():
         "https://api.groq.com/openai/v1/models"                                            if config.AI_PROVIDER == "groq"        else
         "https://integrate.api.nvidia.com/v1/models"                                       if config.AI_PROVIDER == "nvidia"      else
         "https://openrouter.ai/api/v1/models"                                              if config.AI_PROVIDER == "openrouter"  else
-        f"https://generativelanguage.googleapis.com/v1beta/openai/models?key={api_key}"    if config.AI_PROVIDER == "gemini"      else
+        "https://generativelanguage.googleapis.com/v1beta/openai/models"                    if config.AI_PROVIDER == "gemini"      else
         "https://api.anthropic.com/v1/models"                                              if config.AI_PROVIDER == "anthropic"   else
         None
     )
     if not url:
         return {"provider": config.AI_PROVIDER, "skipped": True, "reason": "no ping url for this provider"}
     try:
-        headers = {"Authorization": f"Bearer {api_key}"} if config.AI_PROVIDER != "gemini" else {}
+        headers = {"Authorization": f"Bearer {api_key}"}
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(url, headers=headers)
         elapsed = time.monotonic() - t
