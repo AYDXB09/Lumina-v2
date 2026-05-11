@@ -54,6 +54,7 @@ async def _run_openai_compat(
     executor: ToolExecutor,
     provider,           # K2Provider or OpenRouterProvider instance
     system: str = SYSTEM_PROMPT,
+    course_id: str | None = None,
 ) -> AsyncIterator[str]:
 
     history = [{"role": "system", "content": system}] + _clean_messages(messages)
@@ -68,7 +69,17 @@ async def _run_openai_compat(
     #    — avoids extra API calls for common questions
     MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")
     model_name = model.lower()
-    context_preloaded = "## Assignments in selected course" in system
+    # Disable tool loop when:
+    # 1. Model doesn't support OpenAI function calling (DeepSeek, Llama)
+    # 2. A course is selected — context pre-injected into system prompt
+    #    (avoids slow non-streaming tool rounds; RAG available via search tool
+    #    only when no course is focused)
+    # 3. Assignments/quizzes already present in system prompt (legacy check)
+    context_preloaded = (
+        bool(course_id)
+        or "## Assignments in selected course" in system
+        or "## Quizzes & Exams in selected course" in system
+    )
     tools_supported = (
         not any(m in model_name for m in MODELS_WITHOUT_TOOL_SUPPORT)
         and not context_preloaded
@@ -472,5 +483,5 @@ async def run_chat(
             yield chunk
     else:
         # k2, openrouter, nvidia, groq — all OpenAI-compatible
-        async for chunk in _run_openai_compat(messages, executor, provider, system):
+        async for chunk in _run_openai_compat(messages, executor, provider, system, course_id):
             yield chunk
