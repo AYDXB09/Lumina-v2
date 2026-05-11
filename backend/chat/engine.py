@@ -44,9 +44,14 @@ def _sse(payload: dict | str) -> str:
 # OpenAI-compatible engine (K2 + OpenRouter)                         #
 # ------------------------------------------------------------------ #
 
-def _clean_messages(messages: list[dict]) -> list[dict]:
-    """Strip any extra fields (id, created_at, etc.) — only role + content allowed."""
-    return [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") and m.get("content")]
+def _clean_messages(messages: list[dict], max_messages: int = 12) -> list[dict]:
+    """Strip extra fields and cap history to avoid token limit errors.
+    Keeps the last max_messages turns (always includes the latest user message).
+    """
+    cleaned = [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") and m.get("content")]
+    if len(cleaned) > max_messages:
+        cleaned = cleaned[-max_messages:]
+    return cleaned
 
 
 async def _run_openai_compat(
