@@ -127,6 +127,30 @@ async def health():
     }
 
 
+@app.get("/api/debug/ai-ping", tags=["platform"])
+async def ai_ping():
+    """Test connectivity from this server to the configured AI provider. Never cached."""
+    import asyncio, time, httpx
+    t = time.monotonic()
+    url = (
+        "https://api.groq.com/openai/v1/models"       if config.AI_PROVIDER == "groq"     else
+        "https://integrate.api.nvidia.com/v1/models"  if config.AI_PROVIDER == "nvidia"   else
+        "https://openrouter.ai/api/v1/models"         if config.AI_PROVIDER == "openrouter" else
+        "https://api.anthropic.com/v1/models"         if config.AI_PROVIDER == "anthropic" else
+        None
+    )
+    if not url:
+        return {"provider": config.AI_PROVIDER, "skipped": True, "reason": "no ping url for this provider"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url, headers={"Authorization": f"Bearer {config.GROQ_API_KEY if config.AI_PROVIDER == 'groq' else ''}"})
+        elapsed = time.monotonic() - t
+        return {"provider": config.AI_PROVIDER, "status": r.status_code, "elapsed_ms": round(elapsed * 1000)}
+    except Exception as e:
+        elapsed = time.monotonic() - t
+        return {"provider": config.AI_PROVIDER, "error": str(e), "elapsed_ms": round(elapsed * 1000)}
+
+
 # ------------------------------------------------------------------ #
 # Serve React frontend (production Docker build)                     #
 # Static files are copied into /app/static by Dockerfile             #
