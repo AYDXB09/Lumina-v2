@@ -32,6 +32,9 @@ def get_ai_provider() -> AIProvider:
     elif provider == "groq":
         from providers.ai.groq import GroqProvider
         return GroqProvider()
+    elif provider == "gemini":
+        from providers.ai.gemini import GeminiProvider
+        return GeminiProvider()
     else:
         from providers.ai.k2 import K2Provider
         return K2Provider()

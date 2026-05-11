@@ -118,6 +118,7 @@ async def health():
         config.ANTHROPIC_MODEL  if config.AI_PROVIDER == "anthropic"  else
         config.OPENROUTER_MODEL if config.AI_PROVIDER == "openrouter" else
         config.GROQ_MODEL       if config.AI_PROVIDER == "groq"       else
+        config.GEMINI_MODEL     if config.AI_PROVIDER == "gemini"     else
         config.K2_MODEL
     )
     return {
