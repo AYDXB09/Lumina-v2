@@ -46,20 +46,18 @@ ECONGRAPH_MAP: dict[str, dict] = {
     },
 }
 
-_ECON_KEYWORDS = ("economics", "econ", "micro", "macro")
+_KEYWORDS = ("economics", "econ", "micro", "macro")
 
 
-def inject_if_economics(course_name: str | None, extra: str) -> str:
-    """
-    Append the economics graph prompt to the system prompt suffix
-    if the active course is an economics course.
-    Called from engine._build_system_prompt — no-op for all other subjects.
-    """
-    if not course_name:
-        return extra
-    if not any(k in course_name.lower() for k in _ECON_KEYWORDS):
+def inject_if_match(course_name: str, extra: str) -> str:
+    """Standard interface — called by subject_prompts dispatcher."""
+    if not any(k in course_name.lower() for k in _KEYWORDS):
         return extra
     return extra + _build_prompt()
+
+
+# Keep old name for any direct imports during transition
+inject_if_economics = inject_if_match
 
 
 def _build_prompt() -> str:

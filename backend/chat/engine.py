@@ -454,9 +454,9 @@ async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
                     )
 
         # ------------------------------------------------------------------
-        # Subject-specific prompt injection (economics graphs, etc.)
-        # Each module self-selects based on course name — zero cost for
-        # students not in that subject.
+        # Subject-specific prompt injection — economics, maths, physics, etc.
+        # Dispatcher lazy-imports only the matching subject module.
+        # engine.py never needs to change when new subjects are added.
         # ------------------------------------------------------------------
         if course_id and not isinstance(enroll_result, Exception):
             selected_course = next(
@@ -465,8 +465,8 @@ async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
                 None,
             )
             if selected_course:
-                from chat.economics_graphs import inject_if_economics
-                extra = inject_if_economics(selected_course.get("name"), extra)
+                from chat.subject_prompts import inject_subject_prompt
+                extra = inject_subject_prompt(selected_course.get("name"), extra)
 
     except Exception as e:
         logger.warning("System prompt build error (non-fatal): %s", e)
