@@ -77,18 +77,32 @@ async def _run_openai_compat(
     import time as _time
     import asyncio
 
-    TOKEN_TIMEOUT = 60  # seconds between tokens — if exceeded, stream is dead
+    CONNECT_TIMEOUT = 30  # max seconds to wait for API to accept the request
+    TOKEN_TIMEOUT   = 60  # max seconds between tokens once streaming starts
 
     if not tools_supported:
         # Direct stream — no tool loop overhead
         t_api = _time.monotonic()
-        stream = await client.chat.completions.create(
-            model=model,
-            messages=history,
-            stream=True,
-            temperature=0.7,
-            max_tokens=4096,
-        )
+        try:
+            stream = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=model,
+                    messages=history,
+                    stream=True,
+                    temperature=0.7,
+                    max_tokens=4096,
+                ),
+                timeout=CONNECT_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.error("API connect timeout after %ds (model=%s)", CONNECT_TIMEOUT, model)
+            yield _sse("[DONE]")
+            return
+        except Exception as e:
+            logger.error("API connect error (model=%s): %s", model, e)
+            yield _sse("[DONE]")
+            return
+
         first_token = True
         try:
             async for chunk in _aiter_with_timeout(stream.__aiter__(), TOKEN_TIMEOUT):
@@ -120,7 +134,15 @@ async def _run_openai_compat(
             kwargs["tools"] = TOOL_DEFINITIONS
             kwargs["tool_choice"] = "auto"
 
-        response = await client.chat.completions.create(**kwargs)
+        try:
+            response = await asyncio.wait_for(
+                client.chat.completions.create(**kwargs),
+                timeout=CONNECT_TIMEOUT,
+            )
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.error("Tool loop error round=%d (model=%s): %s", round_num, model, e)
+            yield _sse("[DONE]")
+            return
         choice = response.choices[0]
         message = choice.message
 
@@ -143,13 +165,21 @@ async def _run_openai_compat(
             # Final response — stream it
             history.append({"role": "assistant", "content": message.content})
 
-            stream = await client.chat.completions.create(
-                model=model,
-                messages=history,
-                stream=True,
-                temperature=0.7,
-                max_tokens=4096,
-            )
+            try:
+                stream = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=model,
+                        messages=history,
+                        stream=True,
+                        temperature=0.7,
+                        max_tokens=4096,
+                    ),
+                    timeout=CONNECT_TIMEOUT,
+                )
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.error("Final stream connect error (model=%s): %s", model, e)
+                yield _sse("[DONE]")
+                return
             try:
                 async for chunk in _aiter_with_timeout(stream.__aiter__(), TOKEN_TIMEOUT):
                     delta = chunk.choices[0].delta.content
@@ -274,9 +304,7 @@ async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
         config.GROQ_MODEL       if config.AI_PROVIDER == "groq"       else
         config.K2_MODEL
     )
-    # On NVIDIA, Llama models don't support tool calls (hang). On Groq they do.
-    is_nvidia_provider = config.AI_PROVIDER == "nvidia"
-    _no_tool_models = ("deepseek",) + (("llama",) if is_nvidia_provider else ())
+    _no_tool_models = ("deepseek", "llama")
     has_tools = not any(m in model_name.lower() for m in _no_tool_models)
     tool_note = (
         "You have access to tools: get_assignments, get_announcements, search_course_content."
