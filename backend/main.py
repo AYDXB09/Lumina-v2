@@ -156,7 +156,12 @@ async def ai_ping():
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(url, headers=headers)
         elapsed = time.monotonic() - t
-        return {"provider": config.AI_PROVIDER, "status": r.status_code, "elapsed_ms": round(elapsed * 1000)}
+        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        # For Gemini, extract model ids so we know what's available
+        models = None
+        if config.AI_PROVIDER == "gemini" and r.status_code == 200:
+            models = [m.get("id") for m in body.get("data", [])]
+        return {"provider": config.AI_PROVIDER, "status": r.status_code, "elapsed_ms": round(elapsed * 1000), "models": models}
     except Exception as e:
         elapsed = time.monotonic() - t
         return {"provider": config.AI_PROVIDER, "error": str(e), "elapsed_ms": round(elapsed * 1000)}
