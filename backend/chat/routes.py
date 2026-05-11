@@ -79,41 +79,56 @@ async def chat_stream(body: ChatRequest, user=Depends(get_current_student)):
         full_response = []
         stream_start = time.monotonic()
         try:
-            # Wrap the async generator to keep the Railway reverse-proxy alive.
-            # Railway (and most proxies) close idle SSE connections after ~30s.
-            # The AI often takes 30-40s before the first token arrives.
-            # Every 5s of silence we emit an SSE comment (": heartbeat") which
-            # is invisible to the browser EventSource but resets the proxy timer.
-            HEARTBEAT_INTERVAL = 5.0  # seconds
-            aiter = run_chat(
-                messages=body.messages,
-                user_id=user["sub"],
-                school_id=user["school"],
-                course_id=body.course_id,
-            ).__aiter__()
+            # Heartbeat approach: producer task feeds a queue; consumer yields
+            # chunks or ": heartbeat\n\n" every 5s of silence.
+            # Using a queue (not asyncio.wait_for on __anext__) avoids
+            # coroutine cancellation corrupting the async generator state.
+            HEARTBEAT_INTERVAL = 5.0
+            _DONE = object()
+            queue: asyncio.Queue = asyncio.Queue()
 
-            while True:
+            async def _producer():
                 try:
-                    chunk = await asyncio.wait_for(
-                        aiter.__anext__(), timeout=HEARTBEAT_INTERVAL
-                    )
-                except asyncio.TimeoutError:
-                    # No token yet — ping the proxy to stay alive
-                    yield ": heartbeat\n\n"
-                    continue
-                except StopAsyncIteration:
-                    break
+                    async for chunk in run_chat(
+                        messages=body.messages,
+                        user_id=user["sub"],
+                        school_id=user["school"],
+                        course_id=body.course_id,
+                    ):
+                        await queue.put(("chunk", chunk))
+                except Exception as exc:
+                    await queue.put(("error", exc))
+                finally:
+                    await queue.put(("done", _DONE))
 
-                yield chunk
-                # Collect content chunks to persist
-                try:
-                    payload = chunk.replace("data: ", "", 1).strip()
-                    if payload and payload != "[DONE]":
-                        parsed = json.loads(payload)
-                        if parsed.get("type") == "content":
-                            full_response.append(parsed["text"])
-                except Exception:
-                    pass
+            producer_task = asyncio.create_task(_producer())
+            try:
+                while True:
+                    try:
+                        kind, value = await asyncio.wait_for(
+                            queue.get(), timeout=HEARTBEAT_INTERVAL
+                        )
+                    except asyncio.TimeoutError:
+                        yield ": heartbeat\n\n"
+                        continue
+
+                    if kind == "done":
+                        break
+                    if kind == "error":
+                        raise value
+
+                    chunk = value
+                    yield chunk
+                    try:
+                        payload = chunk.replace("data: ", "", 1).strip()
+                        if payload and payload != "[DONE]":
+                            parsed = json.loads(payload)
+                            if parsed.get("type") == "content":
+                                full_response.append(parsed["text"])
+                    except Exception:
+                        pass
+            finally:
+                producer_task.cancel()
 
         except Exception as e:
             logger.error("Chat stream error: %s", e)
