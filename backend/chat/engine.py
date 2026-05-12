@@ -44,7 +44,7 @@ def _sse(payload: dict | str) -> str:
 # OpenAI-compatible engine (K2 + OpenRouter)                         #
 # ------------------------------------------------------------------ #
 
-def _clean_messages(messages: list[dict], max_messages: int = 12) -> list[dict]:
+def _clean_messages(messages: list[dict], max_messages: int = 4) -> list[dict]:
     """Strip extra fields and cap history to avoid token limit errors.
     Keeps the last max_messages turns (always includes the latest user message).
     """
@@ -391,7 +391,7 @@ async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
         # If cache is empty the AI will still work; calendar syncs separately.
         # ------------------------------------------------------------------
         if not isinstance(cal_rows, Exception) and cal_rows:
-            window_end_date = (now + timedelta(days=90)).date().isoformat()
+            window_end_date = (now + timedelta(days=15)).date().isoformat()
             now_date        = now.date().isoformat()
             all_events = []
             for row in cal_rows:
