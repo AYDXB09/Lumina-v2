@@ -357,6 +357,11 @@ async def _build_system_prompt(user_id: str, course_id: str | None, user_query: 
                     for c in courses
                 )
                 extra += f"\n## Student's enrolled courses\n{course_lines}\n"
+                # Make the currently selected course explicit
+                if course_id:
+                    active = next((c for c in courses if str(c.get("id")) == str(course_id)), None)
+                    if active:
+                        extra += f"\n**Currently active course: {active['name']}** — answer questions in this context unless the student specifies otherwise.\n"
 
         # ------------------------------------------------------------------
         # Process assignments / quizzes for selected course
