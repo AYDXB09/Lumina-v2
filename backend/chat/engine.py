@@ -267,7 +267,7 @@ async def _run_anthropic(
 # Public entry point                                                  #
 # ------------------------------------------------------------------ #
 
-async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
+async def _build_system_prompt(user_id: str, course_id: str | None, user_query: str | None = None) -> str:
     """
     Build a rich system prompt by injecting:
     - Current date
@@ -449,6 +449,21 @@ async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
                 from chat.subject_prompts import inject_subject_prompt
                 extra = inject_subject_prompt(selected_course.get("name"), extra)
 
+        # ------------------------------------------------------------------
+        # Proactive RAG injection — search course content for the user's query
+        # and inject top results. Gives the AI actual course material without
+        # needing tool calls (which are disabled for Groq/Llama models).
+        # Capped at 3 chunks to stay within token budget.
+        # ------------------------------------------------------------------
+        if course_id and user_query:
+            try:
+                from rag.search import search as rag_search, format_context
+                rag_results = await rag_search(user_query, course_id, user_id, k=3, threshold=0.25)
+                if rag_results:
+                    extra += "\n" + format_context(rag_results)
+            except Exception as e:
+                logger.debug("RAG injection skipped: %s", e)
+
     except Exception as e:
         logger.warning("System prompt build error (non-fatal): %s", e)
 
@@ -470,9 +485,10 @@ async def run_chat(
     provider = get_ai_provider()
     executor = ToolExecutor(user_id, school_id, course_id)
 
-    # Pre-inject course list — skips get_courses tool call on first turn
+    # Pre-inject course list + proactive RAG for user's query
     t0 = _time.monotonic()
-    system = await _build_system_prompt(user_id, course_id)
+    last_user_msg = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), None)
+    system = await _build_system_prompt(user_id, course_id, user_query=last_user_msg)
     logger.info("system_prompt_build=%.3fs prompt_chars=%d", _time.monotonic() - t0, len(system))
 
     provider_name = (config.AI_PROVIDER or "k2").lower()

@@ -169,6 +169,9 @@ export async function fetchMessages(authFetch, sessionId) {
  * @returns {Promise<string>}     - full assembled response
  */
 export async function streamChat(authFetch, messages, opts = {}, onChunk, onToolCall, onSessionId) {
+  const controller = new AbortController();
+  opts.signal?.(controller);   // hand the abort fn to the caller
+
   const res = await authFetch(`${BASE}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -177,6 +180,7 @@ export async function streamChat(authFetch, messages, opts = {}, onChunk, onTool
       session_id: opts.sessionId ?? null,
       course_id:  opts.courseId  ?? null,
     }),
+    signal: controller.signal,
   });
 
   if (!res.ok) {
@@ -190,7 +194,13 @@ export async function streamChat(authFetch, messages, opts = {}, onChunk, onTool
   let   full    = "";
 
   while (true) {
-    const { done, value } = await reader.read();
+    let done, value;
+    try {
+      ({ done, value } = await reader.read());
+    } catch (e) {
+      if (e.name === "AbortError") return full;  // user stopped — return what we have
+      throw e;
+    }
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });

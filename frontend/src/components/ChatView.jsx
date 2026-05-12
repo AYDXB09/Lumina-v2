@@ -91,6 +91,7 @@ export default function ChatView({
   const sendTimeRef   = useRef(null);  // Date.now() when message was sent
   const timerRef      = useRef(null);  // setInterval handle
   const messagesRef   = useRef([]);    // always-current messages (avoids stale closure in registerSend)
+  const abortRef      = useRef(null);  // AbortController.abort fn — set during streaming
 
   // Keep messagesRef in sync so stale closures (registerSend) always see current messages
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -232,7 +233,11 @@ export default function ChatView({
       await streamChat(
         authFetch,
         newMessages,
-        { sessionId: sessionIdRef.current, courseId: course?.id ?? null },
+        {
+          sessionId: sessionIdRef.current,
+          courseId: course?.id ?? null,
+          signal: (ctrl) => { abortRef.current = ctrl.abort.bind(ctrl); },
+        },
         (chunk) => { accumulated += chunk; setStreamingText(accumulated); },
         (toolCall) => {
           const labels = {
@@ -255,9 +260,14 @@ export default function ChatView({
       setStreamingText("");
       setToolStatus(null);
     } finally {
+      abortRef.current = null;
       setLoading(false);
       inputRef.current?.focus();
     }
+  };
+
+  const handleStop = () => {
+    abortRef.current?.();
   };
 
   // Quick-action alias used by WelcomeScreen and external callers (RightPanel MindMap)
@@ -451,11 +461,11 @@ export default function ChatView({
             <button
               style={{
                 ...s.sendBtn,
-                opacity: (!input.trim() && attachments.length === 0) || loading ? 0.45 : 1,
+                opacity: loading ? 1 : (!input.trim() && attachments.length === 0) ? 0.45 : 1,
               }}
-              onClick={handleSend}
-              disabled={(!input.trim() && attachments.length === 0) || loading}
-              title="Send"
+              onClick={loading ? handleStop : handleSend}
+              disabled={!loading && !input.trim() && attachments.length === 0}
+              title={loading ? "Stop" : "Send"}
             >
               {loading ? <StopIcon /> : <SendIcon />}
             </button>
