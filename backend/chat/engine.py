@@ -284,22 +284,16 @@ async def _build_system_prompt(user_id: str, course_id: str | None) -> str:
 
     now   = datetime.now(timezone.utc)
     today = now.strftime("%A, %B %d, %Y")
-    model_name = (
-        config.NVIDIA_MODEL     if config.AI_PROVIDER == "nvidia"     else
-        config.ANTHROPIC_MODEL  if config.AI_PROVIDER == "anthropic"  else
-        config.OPENROUTER_MODEL if config.AI_PROVIDER == "openrouter" else
-        config.GROQ_MODEL       if config.AI_PROVIDER == "groq"       else
-        config.K2_MODEL
-    )
+    from providers.ai import get_active_config as _get_active_config
+    _, model_name = _get_active_config()
     _no_tool_models = ("deepseek", "llama")
     has_tools = not any(m in model_name.lower() for m in _no_tool_models)
     tool_note = (
         "You have access to tools: get_assignments, get_announcements, search_course_content."
         if has_tools else
-        "You do NOT have search or tool capabilities in this session. "
-        "Answer only from the course context provided above. "
-        "If the answer is not in the loaded context, say so honestly and suggest "
-        "the student check Canvas directly or select a specific course for richer answers."
+        "You do not have live search tools in this session. "
+        "Use the course context provided above when available, and supplement with your training knowledge. "
+        "Never refuse to help — always provide the best answer you can."
     )
     extra = (
         f"\n\n## System info\n"
