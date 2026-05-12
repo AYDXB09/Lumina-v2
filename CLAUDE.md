@@ -25,13 +25,16 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 
 ### Built in v2 (this repo)
 - Canvas API Key auth (JWT + httpOnly refresh cookie, sessions in Supabase)
-- Provider abstraction layer: AI (K2 / OpenRouter / Anthropic / NVIDIA NIM), Storage (Supabase), Email (Resend)
+- Provider abstraction layer: AI (K2 / OpenRouter / Anthropic / NVIDIA NIM / Groq / Gemini), Storage (Supabase), Email (Resend)
 - Canvas sync: courses, modules, pages, assignments, announcements → Supabase
 - pgvector RAG: sentence-transformers all-MiniLM-L6-v2 (384-dim), HNSW index
-- SSE streaming chat with tool-call loop (K2/OpenRouter/Anthropic) or direct stream (DeepSeek/Llama)
-- Chat history persisted to Supabase, restored on course switch
-- System prompt injection: today's date + enrolled courses + upcoming assignments + quizzes/exams + calendar events (avoids tool calls)
-- React frontend: Sidebar (course list, no "All Courses") + ChatView (SSE streaming + thinking timer + persistent per-message timer) + LoginScreen
+- SSE streaming chat with tool-call loop (K2/OpenRouter/Anthropic) or direct stream (DeepSeek/Llama/Groq)
+- SSE heartbeat pings every 5s (queue-based, not wait_for) — prevents Railway proxy from dropping idle connections
+- Chat history persisted to Supabase, restored on course switch; capped at 4 messages sent to AI (token budget)
+- System prompt injection: today's date + enrolled courses + active course name + upcoming assignments + quizzes/exams + calendar events (15-day window)
+- Proactive RAG injection: top 3 course content chunks semantically matched to user's query, injected before AI call
+- AI provider + model switchable at runtime via Supabase `global_config` table (no redeploy needed, 60s cache)
+- React frontend: Sidebar (course list, no "All Courses") + ChatView (SSE streaming + thinking timer + persistent per-message timer + working stop button) + LoginScreen
 - iCal calendar integration: personal calendars + Canvas auto-calendar, JSONB cache, injected into AI context
 - RightPanel: 5 tabs — Assignments / Notices / Quizzes / Feedback / Mind Map
 - SettingsModal: 5 tabs — General / Calendar / Materials / Admin KB (teachers only) / Account
@@ -41,6 +44,8 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 - Student material upload: multi-file + folder select, filename tag extraction, tag-aware embeddings
 - Admin knowledge base: shared_materials table, grade/subject/doc_type tagging, bulk upload
 - Embedding model pre-warmed on startup (eliminates cold-start delay on first sign-in)
+- Subject prompt modules: Economics (EconGraphs iframes), Mathematics (Desmos), Physics (PhET) — lazy-loaded per course
+- Interactive widgets: `[ECONGRAPH: id]`, `[DESMOS: id]`, `[PHET: id]` markers rendered as collapsible iframes in chat
 
 ### Not yet ported from v1
 - Adaptive quiz generator
@@ -101,23 +106,36 @@ Only infrastructure layer differs — environment variables switch providers.
 | Secrets | AWS Secrets Manager | |
 
 ### AI Provider Abstraction
-Switch via `AI_PROVIDER` env var — no code changes needed:
+**Primary control: Supabase `global_config` table (no redeploy needed)**
+```sql
+UPDATE global_config SET value = 'groq'                    WHERE key = 'ai_provider';
+UPDATE global_config SET value = 'llama-3.3-70b-versatile' WHERE key = 'ai_model';
 ```
-AI_PROVIDER=k2          → K2Provider      (K2-Think-v2 direct)
+Takes effect within 60 seconds (cache TTL). Falls back to env vars if no DB row.
+
+Env var fallback (requires redeploy):
+```
+AI_PROVIDER=k2          → K2Provider
 AI_PROVIDER=openrouter  → OpenRouterProvider
 AI_PROVIDER=anthropic   → AnthropicProvider
-AI_PROVIDER=nvidia      → NvidiaProvider  (NVIDIA NIM — Llama, DeepSeek etc.)
+AI_PROVIDER=nvidia      → NvidiaProvider  (NVIDIA NIM)
+AI_PROVIDER=groq        → GroqProvider    (LPU — fast)
+AI_PROVIDER=gemini      → GeminiProvider  (Google AI Studio)
 ```
 
 **Tool calling support:**
 - K2, OpenRouter, Anthropic: full OpenAI-style tool calling
-- Llama + DeepSeek on NVIDIA: tool loop disabled — uses pre-injected context instead (faster, fewer API calls)
+- Llama + DeepSeek: tool loop disabled — uses pre-injected context + proactive RAG instead
   - Controlled by `MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")` in `backend/chat/engine.py`
+- Tool loop also disabled whenever `course_id` is set (context already pre-injected)
 
-**Currently running:** NVIDIA NIM with `meta/llama-3.1-8b-instruct` (switched from llama-3.3-70b — 70B was too slow, 24-35s TTFT; 8B targets 5-10s)
+**Currently running:** Groq `llama-3.3-70b-versatile` (3–8s responses)
+**Railway env vars needed:** `AI_PROVIDER=groq`, `GROQ_API_KEY=...`, `GROQ_MODEL=llama-3.3-70b-versatile`
 
-**Performance:** When a course is selected, assignments + quizzes/exams + calendar events are all pre-injected
-into the system prompt → 1 AI call per message (no tool loop overhead).
+**Groq free tier limits:** 12,000 TPM. System prompt ~3,200 tokens + 4-message history. Stays under limit for normal use.
+If hitting limits: switch model in Supabase to `llama-3.1-8b-instant` (higher TPM, lower quality).
+
+**Performance:** Course selected → assignments + quizzes + calendar (15-day window) + top 3 RAG chunks pre-injected → 1 AI call per message.
 
 ---
 
@@ -129,28 +147,29 @@ into the system prompt → 1 AI call per message (no tool loop overhead).
 - **Platform:** Railway (railway.app)
 - **Account:** AYDXB09 (GitHub SSO)
 - **Repo:** AYDXB09/Lumina-v2 — auto-deploys on every push to `main`
-- **URL:** pending (assigned after first successful deploy)
+- **URL:** https://lumina-v2-production.up.railway.app
 
-### Environment variables set in Railway Shared Variables
-| Variable | Notes |
-|---|---|
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_SERVICE_KEY` | Service role key (not anon key) |
-| `JWT_SECRET` | Same as local .env |
-| `ENCRYPTION_KEY` | Fernet key for Canvas token encryption |
-| `AI_PROVIDER` | `nvidia` |
-| `NVIDIA_API_KEY` | NVIDIA NIM API key |
-| `NVIDIA_API_URL` | `https://integrate.api.nvidia.com/v1` |
-| `NVIDIA_MODEL` | `meta/llama-3.1-8b-instruct` |
-| `REFRESH_EXPIRE_DAYS` | `90` |
-| `RESEND_API_KEY` | Resend transactional email |
-| `ALLOWED_ORIGINS` | `https://lumina-v2-production.up.railway.app` |
+### Environment variables set in Railway
+| Variable | Value | Notes |
+|---|---|---|
+| `SUPABASE_URL` | https://tnholnjrhnnqytmpqacb.supabase.co | |
+| `SUPABASE_SERVICE_KEY` | ... | Service role key |
+| `JWT_SECRET` | ... | Same as local .env |
+| `ENCRYPTION_KEY` | ... | Fernet key |
+| `AI_PROVIDER` | `groq` | ⚠️ Update if not done yet |
+| `GROQ_API_KEY` | `gsk_...` | |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | ⚠️ Update if not done yet |
+| `NVIDIA_API_KEY` | ... | Keep for fallback |
+| `REFRESH_EXPIRE_DAYS` | `90` | |
+| `RESEND_API_KEY` | ... | |
+| `ALLOWED_ORIGINS` | `https://lumina-v2-production.up.railway.app` | |
 
 ### Post-deploy checklist
-- [x] Add `ALLOWED_ORIGINS=https://lumina-v2-production.up.railway.app` to Railway variables
-- [ ] Verify `/health` endpoint returns `{"status": "ok"}`
-- [ ] Test login with Canvas API key
-- [ ] Enable "Remove on Inactivity" in Railway service settings (sleep when idle = no wasted credits)
+- [x] Railway deployed and live
+- [x] `/health` returns `{"status":"ok","provider":"groq",...}`
+- [x] SSE heartbeat prevents proxy timeout
+- [ ] Test login with Canvas API key on Railway
+- [ ] Enable "Remove on Inactivity" in Railway service settings
 
 ### Local vs Railway workflow
 - **Daily dev:** `./dev.sh` (localhost only — free, instant restarts)
@@ -225,7 +244,11 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `backend/materials/routes.py` | Multi-file upload, filename tag extraction, student RAG indexing |
 | `backend/mindmap/routes.py` | /api/mindmap/{course_id} — get, save, regenerate |
 | `backend/admin/routes.py` | Admin KB upload (shared_materials), list, delete, patch tags |
-| `backend/providers/ai/` | K2, OpenRouter, Anthropic, NVIDIA providers |
+| `backend/providers/ai/` | K2, OpenRouter, Anthropic, NVIDIA, Groq, Gemini providers |
+| `backend/providers/ai/__init__.py` | Factory with Supabase global_config lookup (60s cache); no lru_cache |
+| `backend/chat/subject_prompts/` | Per-subject prompt modules; dispatcher lazy-imports only matching subject |
+| `frontend/src/components/InteractiveWidget.jsx` | Collapsible iframe for ECONGRAPH/DESMOS/PHET markers |
+| `frontend/src/components/ChatMessage.jsx` | Parses widget markers from AI output via parseSegments() |
 | `backend/config.py` | All env vars |
 | `frontend/src/App.jsx` | Auth gate → MainLayout; auto-selects first course; chatSendRef for RightPanel→Chat |
 | `frontend/src/contexts/AuthContext.jsx` | In-memory JWT, cookie refresh, authFetch |
@@ -290,7 +313,11 @@ SettingsModal shows "Admin KB" tab for matching roles.
 - Supabase RPC: `match_shared_materials` — grade_level `@>` containment, expiry date, applicable filters
 
 ### Platform Config
-- `ai_config` — id, school_id, provider, model_id, api_key_encrypted, settings JSONB
+- `ai_config` — id, school_id, provider, model_id, api_key_encrypted, settings JSONB (per-school, has FK constraint)
+- `global_config` — key TEXT PRIMARY KEY, value TEXT — global platform settings (no FK)
+  - `ai_provider` → active AI provider (e.g. "groq")
+  - `ai_model` → active model name (e.g. "llama-3.3-70b-versatile")
+  - Change here takes effect in <60s — no redeploy needed
 - `feature_flags` — school_id, feature, enabled
 - `audit_logs` — id, user_id, action, target_type, target_id, metadata JSONB, created_at
 - `api_usage` — id, school_id, user_id, model_id, input_tokens, output_tokens, created_at
@@ -301,33 +328,44 @@ SettingsModal shows "Admin KB" tab for matching roles.
 ## Architecture Decisions
 
 ### Chat Performance
-- Enrolled courses pre-injected into system prompt on every request (skips get_courses tool call)
-- When a course is selected: upcoming assignments + quizzes/exams injected → tool loop disabled → 1 AI call
-- Calendar events (90-day window) always injected if user has calendars connected
+- Enrolled courses pre-injected into system prompt on every request
+- Active course name explicitly stated: "Currently active course: X" — AI never asks "which course?"
+- When a course is selected: assignments + quizzes/exams injected → tool loop disabled → 1 AI call
+- Calendar events (15-day window) injected if user has calendars connected
+- Proactive RAG: top 3 semantically matched course content chunks injected per query
 - When no course selected: tool loop enabled → AI can call get_assignments, get_announcements, search_course_content
+- Conversation history capped at 4 messages before sending to AI (token budget control)
 - All tool reads from Supabase cache (not live Canvas) — fast
 
 ### Tool Calling
 - Tools read from Supabase (already synced) — not live Canvas API
-- Falls back to live Canvas only if data not yet indexed
-- DeepSeek + Llama models: tool loop disabled (MODELS_WITHOUT_TOOL_SUPPORT in engine.py)
-  — pre-injected context is sufficient for common queries, avoids extra NVIDIA API calls
+- Disabled for: Llama + DeepSeek models (MODELS_WITHOUT_TOOL_SUPPORT) AND whenever course_id is set
+- Proactive RAG injection compensates for disabled tools on Groq/Llama
 
-### Stream Reliability (engine.py)
-- Direct stream path (DeepSeek/Llama) wrapped with `_aiter_with_timeout(60s)` per token
-- If NVIDIA NIM drops stream mid-response, frontend receives "*(Response stalled — please try again)*" instead of infinite silence
-- Timing logs on every request: `system_prompt_build=Xs prompt_chars=N` and `ttft=Xs model=...`
-- System prompt explicitly tells DeepSeek/Llama it has NO tool/search capability → prevents AI hallucinating "let me search your courses"
+### Stream Reliability (routes.py + engine.py)
+- SSE heartbeat: queue-based producer/consumer pattern in `routes.py`
+  - Producer task runs `run_chat()` independently, feeds asyncio.Queue
+  - Consumer yields `: heartbeat\n\n` every 5s of silence — keeps Railway proxy alive
+  - DO NOT use `asyncio.wait_for(__anext__())` — it corrupts async generator state on cancellation
+- Per-token timeout: `_aiter_with_timeout(60s)` in direct stream path
+- Stop button: AbortController in `streamChat()` (api.js), abort fn stored in `abortRef` in ChatView
+- Timing logs: `system_prompt_build=Xs prompt_chars=N` and `ttft=Xs model=...`
 
 ### System Prompt Injection (_build_system_prompt in engine.py)
 Injects in order:
-1. Today's date + underlying model name + tool capability note (has tools vs no tools)
-2. Student's enrolled courses
+1. Today's date + active model name + tool capability note
+2. Student's enrolled courses + **active course name** (bold, explicit)
 3. If course selected: assignments (with `[EXAM]` tag) + quizzes/exams (with `[QUIZ]`/`[EXAM]` tags, time_limit)
-4. Calendar events from `calendar_cache` — 90-day forward window, all sources merged
+4. Calendar events from `calendar_cache` — **15-day** forward window, all sources merged
    - Multi-day events displayed as range: `"Sat 10 May–Sun 11 May"` — AI told ALL days are blocked
-   - Inline fetch triggered when cache is empty (first use, failed previous fetch)
    - Filter: `(start_date <= window_end_date) AND (end_date >= now_date)` — catches ongoing multi-day events
+5. Subject prompt module (Economics/Physics/Maths) — lazy-loaded only for matching course
+6. Proactive RAG chunks — top 3 results from semantic search on user's query
+
+### Socratic Method (prompt.py)
+- **Factual questions** (exam structure, syllabus, definitions, dates): answer directly and completely first
+- **Problem-solving questions** (how do I solve X, why does Y happen): guide with hints, Socratic method
+- DO NOT apply Socratic method to factual lookups — students need information, not questions
 
 ### Calendar Integration
 - **Storage:** `users.calendar_sources` JSONB (source list) + `calendar_cache` table (event cache per source)
@@ -439,6 +477,12 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **`canvas_role` vs `role` key:** Auth login returns `canvas_role` (fixed — was `role`). Frontend isAdmin falls back on both keys just in case. `/auth/me` returns `canvas_role` from DB.
 - **`webkitdirectory` in JSX:** Non-standard attribute — needs `// eslint-disable-next-line react/no-unknown-property` above it. Set as `webkitdirectory=""` (empty string) not `webkitdirectory={true}`.
 - **Admin multi-file upload:** Sends one request per file (sequential loop) — not batched. Keeps the single-file backend endpoint simple; partial success is possible.
+- **SSE heartbeat — DO NOT use `asyncio.wait_for(__anext__())`:** Cancels the coroutine mid-execution on timeout, corrupting async generator state → blank responses. Use queue-based producer/consumer pattern instead (see `chat/routes.py`).
+- **Groq TPM limits:** Free tier is 12,000 TPM. System prompt ~3,200 tokens + history. Keep history at 4 messages max. If hitting limits, switch to `llama-3.1-8b-instant` via Supabase global_config.
+- **Gemini model names for new accounts:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash` all return 404 "not available to new users". Query `/api/debug/ai-ping` (returns model list) to find available models.
+- **global_config table:** `ai_config` has a school_id FK constraint — cannot use NULL. Use `global_config` (key/value, no FK) for platform-wide settings.
+- **Stop button:** Must call `abortRef.current?.()` on click when `loading=true`. Button disabled state must NOT include `|| loading` — that makes it unclickable when streaming.
+- **Proactive RAG is async:** `rag_search()` is async — call with `await`, not via `asyncio.to_thread`. Its internals (embedder, Supabase) are sync but the function is declared async.
 
 ---
 
@@ -488,22 +532,30 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 
 ### Phase 1 — Remaining
 - [x] Complete Railway deployment — live at https://lumina-v2-production.up.railway.app
-- [x] Stream stall fix — `_aiter_with_timeout` wraps NVIDIA stream; 60s per-token timeout; error message sent to frontend instead of hanging
-- [x] Timer badge persistence fix — `messagesRef` prevents stale closure in `registerSend` from wiping messages
-- [ ] Study plan generation (AI prompt + UI — calendar context is ready, prompt/UX not built)
+- [x] SSE heartbeat — queue-based, prevents Railway proxy timeout
+- [x] Working stop button — AbortController wired through streamChat → ChatView
+- [x] AI provider/model switchable via Supabase global_config (no redeploy)
+- [x] Proactive RAG injection — course content chunks injected per query
+- [x] Token budget control — 4-message history cap, 15-day calendar window
+- [x] Active course injected explicitly — AI never asks "which subject?"
+- [x] Socratic method fixed — factual questions get direct answers
+- [x] Timer badge persistence fix — `messagesRef` prevents stale closure
+- [x] Subject prompt modules — Economics (EconGraphs), Maths (Desmos), Physics (PhET)
+- [x] InteractiveWidget component — collapsible iframes for ECONGRAPH/DESMOS/PHET markers
+- [ ] Study plan generation
+- [ ] Switch Railway to Groq (set AI_PROVIDER=groq, GROQ_API_KEY, GROQ_MODEL in Railway vars)
 
-### Phase 2 — Subject Modules (start simple, validate with real students first)
-**Economics (IB + AP) — start here:**
-- [ ] `<EconGraph />` component — iframe wrapper for econgraphs.org, dark-themed, fullscreen toggle
-- [ ] AI trigger: AI outputs `[graph: slug]` tag → frontend renders inline EconGraph
-- [ ] Economics system prompt context — IB SL/HL vs AP Micro/Macro curriculum awareness
-- Diagrams needed: supply/demand, PPC, AD/AS, Phillips curve, cost curves (AP Micro/IB HL), money market (AP Macro)
+### Phase 2 — Subject Modules (foundation built, expand content)
+**Economics (IB + AP):**
+- [x] EconGraphs iframe integration (6 pilot graphs)
+- [x] IBDP exam technique injected into Economics course prompts
+- [ ] AP Micro / AP Macro split prompts (ap_micro.py, ap_macro.py)
+- [ ] Custom SVG for missing diagrams (price ceiling/floor, Lorenz curve, standalone AD-AS, tariff)
 
-**Later subjects (same pattern, different tools):**
-- [ ] Maths/Physics graphs — Mafs (React-native, MIT license)
-- [ ] Chemistry 2D molecules — Ketcher (ePAM, Apache 2.0)
-- [ ] Chemistry/Biology 3D structures — Miew (ePAM, open source)
-- [ ] Physics simulations — PhET via iframe (MIT, free — NOT PhET-IO which costs $10k/yr)
+**Later subjects (same pattern):**
+- [ ] Chemistry subject prompt + Ketcher 2D molecules
+- [ ] Biology subject prompt
+- [ ] Chemistry/Biology 3D structures — Miew
 
 ### Phase 3 — Full student experience
 - [ ] Adaptive quiz generator (port from v1)
