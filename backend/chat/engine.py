@@ -72,7 +72,7 @@ async def _run_openai_compat(
     # 1. Model doesn't support OpenAI-style function calling (e.g. DeepSeek, Llama)
     # 2. Course context is already injected in system prompt (course_id present)
     #    — avoids extra API calls for common questions
-    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")
+    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama", "k2")
     model_name = model.lower()
     # Disable tool loop when:
     # 1. Model doesn't support OpenAI function calling (DeepSeek, Llama)
