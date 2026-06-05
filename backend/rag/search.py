@@ -27,7 +27,7 @@ async def search(
     if not query.strip():
         return []
 
-    vector = embed_one(query)
+    vector = await embed_one(query)
     sb = get_supabase()
     results = []
 

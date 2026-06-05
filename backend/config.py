@@ -59,6 +59,10 @@ class Config:
     GEMINI_API_URL: str = os.getenv("GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
     GEMINI_MODEL: str   = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
+    # Gemini Embeddings
+    GEMINI_EMBEDDING_MODEL: str = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+    GEMINI_EMBEDDING_DIMS: int  = int(os.getenv("GEMINI_EMBEDDING_DIMS", "768"))
+
     # ------------------------------------------------------------------ #
     # Email — Resend                                                       #
     # ------------------------------------------------------------------ #

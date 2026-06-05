@@ -45,23 +45,6 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Lumina backend starting — provider: %s", config.AI_PROVIDER)
 
-    # Pre-warm the embedding model so the first sign-in (which triggers
-    # background indexing) doesn't pay the 2-3 s cold-start cost on the
-    # hot path.  Runs in a thread so it doesn't block the event loop.
-    import asyncio
-    import concurrent.futures
-
-    def _warm_embedder():
-        try:
-            from rag.embedder import embed
-            embed(["warmup"])
-            logger.info("Embedding model pre-warmed ✓")
-        except Exception as e:
-            logger.warning("Embedder warmup failed (non-fatal): %s", e)
-
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(concurrent.futures.ThreadPoolExecutor(max_workers=1), _warm_embedder)
-
     yield
     logger.info("Lumina backend shutting down")
 

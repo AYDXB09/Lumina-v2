@@ -180,7 +180,7 @@ async def index_course_content(course_id: str, content: dict) -> int:
     for batch_start in range(0, len(rows), BATCH):
         batch = rows[batch_start: batch_start + BATCH]
         texts = [r["content"] for r in batch]
-        vectors = embed(texts)
+        vectors = await embed(texts)
 
         for row, vector in zip(batch, vectors):
             row["embedding"] = vector
@@ -249,7 +249,7 @@ async def index_student_material(
 
     # Embed with prefix (improves semantic retrieval for tagged content)
     embed_texts = [tag_prefix + chunk for chunk in chunks] if tag_prefix else chunks
-    vectors = embed(embed_texts)
+    vectors = await embed(embed_texts)
 
     rows = [
         {

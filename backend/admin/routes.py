@@ -141,7 +141,7 @@ async def upload_shared_material(
         "doc_type":     doc_type,
     })
     embed_texts = [tag_prefix + c for c in chunks] if tag_prefix else chunks
-    vectors = embed(embed_texts)
+    vectors = await embed(embed_texts)
 
     # Store one row per chunk (original content, no prefix)
     rows = []

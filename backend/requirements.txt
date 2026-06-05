@@ -30,9 +30,7 @@ python-multipart>=0.0.9
 # PDF extraction
 pypdf>=6.8.0
 
-# RAG / embeddings (pgvector replaces ChromaDB)
-sentence-transformers>=3.0.0
-numpy>=1.26.0
+# RAG / embeddings — Gemini embedding API (no local model)
 
 # Calendar (iCal parsing)
 icalendar>=6.0.0
