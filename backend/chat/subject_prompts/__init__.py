@@ -15,12 +15,43 @@ engine.py never needs to change.
 # Registry: (keywords_tuple, module_path)
 # Keywords are checked as substrings against the lowercased course name.
 _REGISTRY = [
-    (("economics", "econ", "micro", "macro"),  "chat.subject_prompts.economics"),
+    (("economics", "econ", "micro", "macro"),
+        "chat.subject_prompts.economics"),
+
     (("math", "maths", "calculus", "algebra", "statistics", "ibdp math", "ap calc"),
-                                                "chat.subject_prompts.mathematics"),
-    (("physics", "phys"),                       "chat.subject_prompts.physics"),
-    (("chemistry", "chem"),                     "chat.subject_prompts.chemistry"),
-    (("biology", "bio"),                        "chat.subject_prompts.biology"),
+        "chat.subject_prompts.mathematics"),
+
+    (("physics", "phys"),
+        "chat.subject_prompts.physics"),
+
+    (("chemistry", "chem"),
+        "chat.subject_prompts.chemistry"),
+
+    (("biology", "bio"),
+        "chat.subject_prompts.biology"),
+
+    (("english", "literature", "language & literature", "language and literature",
+      "lang lit", "langlit", "eng lit"),
+        "chat.subject_prompts.english"),
+
+    (("history", "hist", "world history", "us history", "european history"),
+        "chat.subject_prompts.history"),
+
+    (("french", "spanish", "mandarin", "chinese", "german", "arabic",
+      "japanese", "italian", "portuguese", "korean", "language b",
+      "lang b", "ab initio", "language acquisition", "foreign language", "world language"),
+        "chat.subject_prompts.languages"),
+
+    (("psychology", "psych"),
+        "chat.subject_prompts.psychology"),
+
+    (("computer science", "computer studies", "computing", "cs ",
+      "ap cs", "programming", "coding", "software", "design technology"),
+        "chat.subject_prompts.computer_science"),
+
+    (("geography", "geog", "environmental science", "env science",
+      "human geography", "ap human"),
+        "chat.subject_prompts.geography"),
 ]
 
 

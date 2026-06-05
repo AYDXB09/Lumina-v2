@@ -82,6 +82,12 @@ Rules:
 Available graphs (pilot set — use the exact ID):
 {graph_list}
 
+Additional interactive tools — embed using [KINETIC: graph_id]:
+  [supply_demand_game] — Consumers, Producers & Market Equilibrium
+  [prisoners_dilemma]  — Prisoner's Dilemma (Game Theory)
+  [cobb_douglas]       — Cobb-Douglas Production Function (HL)
+  [budget_constraint]  — Budget Constraint & Indifference Curves (HL)
+
 Not yet available as interactive graphs (describe in words):
 - Price ceiling / price floor
 - Lorenz curve / Gini coefficient

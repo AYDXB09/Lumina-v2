@@ -91,10 +91,10 @@ function renderMarkdown(raw) {
 // ------------------------------------------------------------------ //
 // Interactive widget marker parser                                    //
 // Splits AI content into text segments and [MARKER: id] segments.    //
-// Supports: ECONGRAPH, DESMOS, PHET                                  //
+// Supports: ECONGRAPH, DESMOS, PHET, KINETIC, LIFESCIENCE, EXPLORABLES //
 // ------------------------------------------------------------------ //
 
-const WIDGET_RE = /\[(ECONGRAPH|DESMOS|PHET):\s*([^\]]+)\]/g;
+const WIDGET_RE = /\[(ECONGRAPH|DESMOS|PHET|KINETIC|LIFESCIENCE|EXPLORABLES):\s*([^\]]+)\]/g;
 
 function parseSegments(content) {
   const segments = [];

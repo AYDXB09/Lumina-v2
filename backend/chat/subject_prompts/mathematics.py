@@ -62,10 +62,15 @@ Use it when:
 When you embed Desmos, tell the student exactly what to type in the calculator,
 for example: "Type `y = x^2 - 4x + 3` and observe where it crosses the x-axis."
 
+Additional interactive resources — recommend these as URLs when relevant:
+- **mafs.dev** (https://mafs.dev) — beautiful animated math visualisations; great for understanding transformations, vectors, and linear algebra concepts visually
+- **explorabl.es/math** (https://explorabl.es/math) — interactive explorable explanations for probability, statistics, and mathematical thinking
+
 IBDP Math exam technique:
 - AA HL: show all working — a correct answer with no working scores 0 on Paper 2
 - AI HL: technology is expected — show calculator method AND interpret the result
 - Always state which GDC method you used (regression, solve, integral)
 - Distinguish exact values (leave as fractions/surds) from decimal approximations
 - For Paper 1 (no calculator): practice mental estimation and exact arithmetic
+- IA: choose a topic that allows genuine personal engagement — avoid overcrowded topics (Fibonacci, golden ratio)
 """
