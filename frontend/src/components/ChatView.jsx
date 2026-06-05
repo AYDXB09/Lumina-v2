@@ -58,6 +58,12 @@ const StopIcon = () => (
   </svg>
 );
 
+const PlusIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+    <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
+
 const PLACEHOLDER = "Ask me anything… I'll guide you to the answer";
 
 export default function ChatView({
@@ -153,6 +159,16 @@ export default function ChatView({
 
     return () => { cancelled = true; };
   }, [course?.id]);
+
+  // Start a brand-new chat session for the current course
+  const handleNewChat = useCallback(() => {
+    if (loading) return;
+    sessionIdRef.current = null;
+    setMessages([]);
+    setInput("");
+    setAttachments([]);
+    inputRef.current?.focus();
+  }, [loading]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -312,6 +328,19 @@ export default function ChatView({
         </div>
 
         <div style={s.topbarRight}>
+          {/* New Chat button — only when course selected */}
+          {course && (
+            <button
+              style={s.newChatBtn}
+              onClick={handleNewChat}
+              disabled={loading}
+              title="Start a new chat session"
+            >
+              <PlusIcon />
+              <span>New Chat</span>
+            </button>
+          )}
+
           {/* Assignments panel toggle — only when course selected */}
           {course && (
             <button
@@ -585,6 +614,20 @@ const s = {
     justifyContent: "center",
     transition: "background var(--transition)",
     flexShrink: 0,
+  },
+  newChatBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    padding: "5px 12px",
+    background: "transparent",
+    border: "1px solid var(--color-border)",
+    borderRadius: "9999px",
+    color: "var(--color-text-muted)",
+    fontSize: "12px",
+    fontWeight: "500",
+    cursor: "pointer",
+    transition: "all var(--transition)",
   },
   assignBtn: {
     display: "flex",
