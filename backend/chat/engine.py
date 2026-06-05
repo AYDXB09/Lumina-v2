@@ -471,7 +471,7 @@ async def _build_system_prompt(user_id: str, course_id: str | None, user_query: 
     except Exception as e:
         logger.warning("System prompt build error (non-fatal): %s", e)
 
-    return SYSTEM_PROMPT + extra
+    return SYSTEM_PROMPT.format(model_name=model_name) + extra
 
 
 async def run_chat(
