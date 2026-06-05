@@ -46,3 +46,4 @@ vite-dev.err
 vite-dev.out
 backend-run.err
 backend-run.out
+.claude/worktrees/
