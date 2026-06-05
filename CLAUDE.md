@@ -33,7 +33,7 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 - Chat history persisted to Supabase, restored on course switch; capped at 4 messages sent to AI (token budget)
 - System prompt injection: today's date + enrolled courses + active course name + upcoming assignments + quizzes/exams + calendar events (15-day window)
 - Proactive RAG injection: top 3 course content chunks semantically matched to user's query, injected before AI call
-- AI provider + model switchable at runtime via Supabase `global_config` table (no redeploy needed, 60s cache)
+- AI provider + model configured via Railway env vars (`AI_PROVIDER`, `GEMINI_MODEL`, etc.) — change in Railway and restart
 - React frontend: Sidebar (course list, no "All Courses") + ChatView (SSE streaming + thinking timer + persistent per-message timer + working stop button) + LoginScreen
 - iCal calendar integration: personal calendars + Canvas auto-calendar, JSONB cache, injected into AI context
 - RightPanel: 5 tabs — Assignments / Notices / Quizzes / Feedback / Mind Map
@@ -106,12 +106,8 @@ Only infrastructure layer differs — environment variables switch providers.
 | Secrets | AWS Secrets Manager | |
 
 ### AI Provider Abstraction
-**Primary control: Supabase `global_config` table (no redeploy needed)**
-```sql
-UPDATE global_config SET value = 'groq'                    WHERE key = 'ai_provider';
-UPDATE global_config SET value = 'llama-3.3-70b-versatile' WHERE key = 'ai_model';
-```
-Takes effect within 60 seconds (cache TTL). Falls back to env vars if no DB row.
+**Single source of truth: Railway environment variables**
+Set `AI_PROVIDER` + the matching model var, then restart the service.
 
 Env var fallback (requires redeploy):
 ```
@@ -245,7 +241,7 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `backend/mindmap/routes.py` | /api/mindmap/{course_id} — get, save, regenerate |
 | `backend/admin/routes.py` | Admin KB upload (shared_materials), list, delete, patch tags |
 | `backend/providers/ai/` | K2, OpenRouter, Anthropic, NVIDIA, Groq, Gemini providers |
-| `backend/providers/ai/__init__.py` | Factory with Supabase global_config lookup (60s cache); no lru_cache |
+| `backend/providers/ai/__init__.py` | Provider factory — reads `AI_PROVIDER` env var, builds singleton instance |
 | `backend/chat/subject_prompts/` | Per-subject prompt modules; dispatcher lazy-imports only matching subject |
 | `frontend/src/components/InteractiveWidget.jsx` | Collapsible iframe for ECONGRAPH/DESMOS/PHET markers |
 | `frontend/src/components/ChatMessage.jsx` | Parses widget markers from AI output via parseSegments() |
@@ -314,10 +310,7 @@ SettingsModal shows "Admin KB" tab for matching roles.
 
 ### Platform Config
 - `ai_config` — id, school_id, provider, model_id, api_key_encrypted, settings JSONB (per-school, has FK constraint)
-- `global_config` — key TEXT PRIMARY KEY, value TEXT — global platform settings (no FK)
-  - `ai_provider` → active AI provider (e.g. "groq")
-  - `ai_model` → active model name (e.g. "llama-3.3-70b-versatile")
-  - Change here takes effect in <60s — no redeploy needed
+- `global_config` — key TEXT PRIMARY KEY, value TEXT — reserved for future platform settings
 - `feature_flags` — school_id, feature, enabled
 - `audit_logs` — id, user_id, action, target_type, target_id, metadata JSONB, created_at
 - `api_usage` — id, school_id, user_id, model_id, input_tokens, output_tokens, created_at
@@ -478,7 +471,7 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **`webkitdirectory` in JSX:** Non-standard attribute — needs `// eslint-disable-next-line react/no-unknown-property` above it. Set as `webkitdirectory=""` (empty string) not `webkitdirectory={true}`.
 - **Admin multi-file upload:** Sends one request per file (sequential loop) — not batched. Keeps the single-file backend endpoint simple; partial success is possible.
 - **SSE heartbeat — DO NOT use `asyncio.wait_for(__anext__())`:** Cancels the coroutine mid-execution on timeout, corrupting async generator state → blank responses. Use queue-based producer/consumer pattern instead (see `chat/routes.py`).
-- **Groq TPM limits:** Free tier is 12,000 TPM. System prompt ~3,200 tokens + history. Keep history at 4 messages max. If hitting limits, switch to `llama-3.1-8b-instant` via Supabase global_config.
+- **Groq TPM limits:** Free tier is 12,000 TPM. System prompt ~3,200 tokens + history. Keep history at 4 messages max. If hitting limits, update `GROQ_MODEL=llama-3.1-8b-instant` in Railway and restart.
 - **Gemini model names for new accounts:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash` all return 404 "not available to new users". Query `/api/debug/ai-ping` (returns model list) to find available models.
 - **global_config table:** `ai_config` has a school_id FK constraint — cannot use NULL. Use `global_config` (key/value, no FK) for platform-wide settings.
 - **Stop button:** Must call `abortRef.current?.()` on click when `loading=true`. Button disabled state must NOT include `|| loading` — that makes it unclickable when streaming.
@@ -534,7 +527,7 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 - [x] Complete Railway deployment — live at https://lumina-v2-production.up.railway.app
 - [x] SSE heartbeat — queue-based, prevents Railway proxy timeout
 - [x] Working stop button — AbortController wired through streamChat → ChatView
-- [x] AI provider/model switchable via Supabase global_config (no redeploy)
+- [x] AI provider/model configured via Railway env vars (single source of truth)
 - [x] Proactive RAG injection — course content chunks injected per query
 - [x] Token budget control — 4-message history cap, 15-day calendar window
 - [x] Active course injected explicitly — AI never asks "which subject?"

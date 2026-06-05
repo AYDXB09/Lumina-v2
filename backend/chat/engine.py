@@ -298,7 +298,6 @@ async def _build_system_prompt(user_id: str, course_id: str | None, user_query: 
     extra = (
         f"\n\n## System info\n"
         f"Today's date: {today}\n"
-        f"Underlying AI model: {model_name}\n"
         f"Only mention assignments due AFTER today as 'upcoming'.\n"
         f"{tool_note}\n"
     )

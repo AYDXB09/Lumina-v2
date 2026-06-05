@@ -21,8 +21,7 @@ class GroqProvider(AIProvider):
         self._client = AsyncOpenAI(
             api_key=config.GROQ_API_KEY,
             base_url="https://api.groq.com/openai/v1",
-            max_retries=0,   # fail fast — retries mask errors and add 30s+ latency
-            timeout=30.0,    # hard cap: 30s connect + read timeout
+            max_retries=0,   # fail fast — retries mask errors and add latency
         )
         self._model = config.GROQ_MODEL
 

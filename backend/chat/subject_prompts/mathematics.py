@@ -45,7 +45,6 @@ def inject_if_match(course_name: str, extra: str) -> str:
         return extra
     return extra + _build_prompt()
 
-
 def _build_prompt() -> str:
     return """
 ## Interactive Mathematics Tools

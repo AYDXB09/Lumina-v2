@@ -834,6 +834,14 @@ export default function SettingsModal({ onClose }) {
   const { settings, update } = useSettings();
   const { user, logout, authFetch } = useAuth();
   const [activeTab, setActiveTab] = useState("general");
+  const [aiInfo, setAiInfo] = useState({ provider: "…", model: "…" });
+
+  useEffect(() => {
+    fetch(`${BASE}/health`)
+      .then(r => r.json())
+      .then(d => setAiInfo({ provider: d.provider ?? "unknown", model: d.model ?? "unknown" }))
+      .catch(() => {});
+  }, []);
 
   // Check if user is admin/teacher to show Admin tab
   const isAdmin = user && ["teacher", "teacherenrollment", "taenrollment", "accountadmin", "admin"].some(
@@ -971,7 +979,7 @@ export default function SettingsModal({ onClose }) {
             <Section title="About Lumina">
               <div style={s.aboutGrid}>
                 <AboutItem label="Version" value="v2.0" />
-                <AboutItem label="Model"   value="Llama 3.3-70B via NVIDIA NIM" />
+                <AboutItem label="Model"   value={`${aiInfo.model} via ${aiInfo.provider}`} />
               </div>
             </Section>
           </>}

@@ -56,6 +56,7 @@ class Config:
 
     # Google Gemini (OpenAI-compatible endpoint — free tier via AI Studio)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_API_URL: str = os.getenv("GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
     GEMINI_MODEL: str   = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
     # ------------------------------------------------------------------ #
