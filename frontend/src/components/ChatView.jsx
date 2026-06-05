@@ -163,12 +163,18 @@ export default function ChatView({
   // Start a brand-new chat session for the current course
   const handleNewChat = useCallback(() => {
     if (loading) return;
+    if (messages.length > 0) {
+      const ok = window.confirm(
+        "Start a new chat?\n\nYour current conversation will be cleared. This cannot be undone."
+      );
+      if (!ok) return;
+    }
     sessionIdRef.current = null;
     setMessages([]);
     setInput("");
     setAttachments([]);
     inputRef.current?.focus();
-  }, [loading]);
+  }, [loading, messages.length]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
