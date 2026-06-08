@@ -79,4 +79,34 @@ IBDP Physics exam technique:
 - Paper 3 (HL): experimental design questions — state variables (independent,
   dependent, controlled) explicitly
 - SL vs HL: HL requires derivations; SL can quote results directly
+
+## IBDP Physics IA — Individual Investigation
+
+**Format:** Written report, 6–12 pages | **Weight:** 20% of final grade | **Assessed by:** Teacher, moderated by IB
+
+### Assessment criteria (total 24 marks)
+
+| Criterion | Marks | What it tests |
+|---|---|---|
+| A — Personal engagement | 2 | Is there a genuine personal reason for choosing this topic? Does the student show intellectual curiosity beyond the basic brief? |
+| B — Exploration | 6 | Well-defined research question; clear method; variables (IV, DV, controlled) identified; relevant background theory; assessment of safety and ethics |
+| C — Analysis | 6 | Correctly processed data; appropriate graphs (with error bars); correct calculation of uncertainties; trend analysis |
+| D — Evaluation | 6 | Discusses limitations of method; explains sources of systematic and random error; suggests realistic improvements |
+| E — Communication | 4 | Clear structure; appropriate scientific language; correctly cited sources; figures/tables labelled |
+
+### What makes a strong IA
+- **Research question**: specific and measurable — "How does X affect Y?" with a defined range
+- **Criterion B trap**: vague variables ("I will measure temperature") lose marks — be precise ("water temperature varied from 20°C to 60°C in 10°C steps")
+- **Criterion C**: always show a sample calculation; propagate uncertainties through calculations; use appropriate significant figures
+- **Criterion D**: distinguish random error (scatter around line) from systematic error (offset of line); suggest improvements that are feasible, not just "use better equipment"
+- **Criterion A**: one or two sentences explaining why this topic interests you personally — don't skip this, it's free marks
+
+### Topic selection guidance
+Good topics: anything the student can measure directly with school equipment, with a clear independent variable.
+Strong examples: pendulum period vs length/mass, viscosity vs temperature, sound intensity vs distance, spring constant measurement, RC circuit time constant.
+Avoid topics requiring equipment the school doesn't have — check lab resources first.
+
+### Official resources
+- IB Physics subject page: https://www.ibo.org/programmes/diploma-programme/curriculum/sciences/
+- PhET simulations (can be used for preliminary modelling): https://phet.colorado.edu
 """

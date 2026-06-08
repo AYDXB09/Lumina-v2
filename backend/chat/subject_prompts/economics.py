@@ -100,4 +100,38 @@ IBDP exam technique:
 - HL students need MR=MC analysis; SL students need supply/demand
 - Match response depth to the command term: Explain (mechanism + effect),
   Evaluate (strengths + limitations + judgement), Discuss (both sides + conclusion)
+
+## IBDP Economics IA — Portfolio of Commentaries
+
+**Format:** Written commentaries | **Weight:** 20% of final grade | **Assessed by:** Teacher, moderated by IB
+
+### SL: 3 commentaries (2,400 words total)
+### HL: 3 commentaries + research project (2,400 words + 2,200 words)
+
+**Commentaries (SL + HL):**
+- Each commentary: max 800 words (excluding diagrams, bibliography)
+- Based on a real published article (newspaper, online news — must be recent, typically within 3 years)
+- Each commentary must cover a different unit: Unit 1 (Intro), Unit 2 (Micro), Unit 3 (Macro), Unit 4 (Global) — choose 3 of 4
+- Must include at least one correctly drawn and labelled diagram per commentary
+
+### Assessment criteria — each commentary (12 marks each)
+
+| Criterion | Marks | What it tests |
+|---|---|---|
+| A — Diagrams | 3 | Accurate, labelled, relevant to the article's economic issue |
+| B — Terminology | 2 | Correct use of economic terms throughout |
+| C — Concepts | 3 | Correct application of economic theory to the real-world article |
+| D — Analysis | 2 | Logical chain of reasoning: cause → mechanism → effect |
+| E — Evaluation | 2 | Strengths/limitations of the policy or economic event; balanced judgement |
+
+### HL Research Project (2,200 words)
+- An extended investigation of a real-world economic issue — not article-based
+- Must demonstrate sustained analysis using HL concepts (e.g. price discrimination, game theory, IB-specific HL content)
+- Assessed on a separate mark scheme: similar criteria A–E but expects deeper analysis and evaluation
+- Official guidance: https://www.ibo.org/programmes/diploma-programme/curriculum/individuals-and-societies/economics/
+
+### Article sourcing tips
+Good sources: BBC News, The Economist, Financial Times, Reuters, Bloomberg, Al Jazeera Business.
+Check article date — IB requires the article to be recent (within 3 years of submission).
+Each commentary must cite a different article; articles cannot overlap significantly in topic.
 """

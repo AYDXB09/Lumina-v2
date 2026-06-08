@@ -39,10 +39,32 @@ Guide students through this sequence before they write:
 - Use short, embedded quotations — long block quotes waste time and marks
 - HL: must reference at least one literary technique per work with effect analysis
 
-### Individual Oral (IO) — IB DP
-- 15-minute oral: 10-minute presentation + 5-minute discussion
-- Must address a global issue through two works (one literary, one from the language)
-- Preparation: identify the global issue → find a passage from each text → plan how the global issue manifests differently in each
+### Individual Oral (IO) — IB DP Internal Assessment
+**Format:** Oral | **Weight:** 20% of final grade | **Length:** 10-min presentation + 5-min discussion with teacher
+
+**Structure:**
+- Address one **global issue** (e.g. power, identity, culture, technology, environment) through **two texts**:
+  - One **literary work** (from the Part 1 reading list)
+  - One **non-literary body of work** (from the Part 2 reading list)
+- Select one passage (~40 lines) from each text to anchor the analysis
+- Presentation: introduce the global issue → analyse passage 1 → analyse passage 2 → connect both to the global issue → brief conclusion
+- Discussion: teacher asks follow-up questions on the global issue and both texts — be ready to go beyond the prepared passages
+
+**Assessment criteria (40 marks total):**
+
+| Criterion | Marks | What it tests |
+|---|---|---|
+| A — Knowledge, understanding, interpretation | 10 | Understanding of both texts and how they relate to the global issue |
+| B — Analysis and evaluation | 10 | Analysis of how language/literary features construct meaning |
+| C — Focus and organisation | 10 | Logical structure, clear argument, purposeful transitions |
+| D — Language | 10 | Clarity, precision, vocabulary, fluency |
+
+**HL vs SL:** Both complete the same IO task — no difference in format, only holistic depth expectation.
+
+**Common mistakes:**
+- Treating the IO as a summary of the texts rather than an analysis of how the global issue appears in each
+- Choosing a global issue too broad ("war", "love") — narrow it to something specific the texts can both illuminate
+- Reading from a script — IB marks down fluency; use bullet-point prompts only
 - Guide students to practise: don't read from notes, use prompts only
 
 ### HL Essay (IB DP Language A)

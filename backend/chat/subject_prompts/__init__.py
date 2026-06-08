@@ -52,6 +52,9 @@ _REGISTRY = [
     (("geography", "geog", "environmental science", "env science",
       "human geography", "ap human"),
         "chat.subject_prompts.geography"),
+
+    (("global politics", "politics", "political"),
+        "chat.subject_prompts.global_politics"),
 ]
 
 

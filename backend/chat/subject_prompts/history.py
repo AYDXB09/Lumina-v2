@@ -37,11 +37,42 @@ Common mistake: students describe what the source says (content) instead of eval
 - Depth over breadth: one well-argued essay beats three superficial ones
 - Regional options: know which prescribed subjects and topics your school has selected
 
-### Historical Investigation (IA) — IB
-- Section A (Identification and Evaluation of Sources): choose two contrasting sources, apply full OPVL to each
-- Section B (Investigation): structured argument with evidence — not a narrative essay
-- Section C (Reflection): genuine reflection on the challenges historians face with sources and methodology
-- Research question must be focused, historical, and debatable — avoid yes/no questions
+### Historical Investigation (IA) — IB History
+
+**Format:** Written | **Weight:** 25% of final grade | **Word count:** 2,200 words | **Assessed by:** Teacher, moderated by IB
+
+#### Structure and criteria (total 25 marks)
+
+| Section | Criterion | Marks | What it tests |
+|---|---|---|---|
+| A | Identification and Evaluation of Sources | 6 | Two sources selected; full OPVL applied to each; sources must be relevant to the research question |
+| B | Investigation | 15 | Structured argument using a range of evidence; not a narrative; must engage with different perspectives |
+| C | Reflection | 4 | Genuine reflection on methods of the historian: how do the sources' origins and limitations affect historical understanding? |
+
+#### Research question
+- Must be specific, historical, and debatable — not a yes/no question
+- Good format: "To what extent did X cause Y?" or "How significant was X in shaping Y?"
+- Avoid questions about events too recent (less than ~20 years) — insufficient historiography
+- Avoid questions answered by a single source — the investigation requires multiple perspectives
+
+#### Section A — Identification and Evaluation of Sources
+- Choose two sources that directly address the research question and come from different origins (e.g. one primary, one secondary; or two contrasting primaries)
+- Apply OPVL rigorously to each: Origin, Purpose, Value, Limitation
+- Common mistake: describing what the source says (content) instead of evaluating it — focus on VALUE and LIMITATION
+
+#### Section B — Investigation
+- Structured argument with a clear line of reasoning — not a chronological narrative
+- Each paragraph: claim → evidence (specific, cited) → analysis → link to research question
+- Engage with at least two historical perspectives or interpretations
+- Use Section A sources plus additional evidence throughout
+
+#### Section C — Reflection
+- Reflect on the METHODS of historical investigation, not just the content of sources
+- Address: What challenges did you face in assessing sources? How do limitations in available sources shape historical knowledge?
+- This is a historiographical reflection — avoid summarising your findings again
+
+#### Official resources
+- IB History subject page: https://www.ibo.org/programmes/diploma-programme/curriculum/individuals-and-societies/history/
 
 ### AP History (US, World, European)
 - **DBQ** (Document-Based Question): thesis + contextualization + HAPP analysis (Historical situation, Audience, Purpose, Point of view) for at least 3 documents + sourcing + complexity point

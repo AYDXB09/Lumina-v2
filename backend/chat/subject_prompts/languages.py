@@ -40,10 +40,33 @@ def _build_prompt() -> str:
 - Higher-level language: idiomatic expressions, complex sentence structures, varied connectors — these differentiate a 5 from a 7
 - HL: also write a longer text (250–400 words) — push for coherent argument structure
 
-**Individual Oral (IO)**
-- Based on a visual stimulus — guide students to describe, interpret, and relate to course themes
-- Structure: describe what you see → interpret/analyse → connect to a global issue or course theme → personal reflection
-- Preparation: practise the opening 3-minute uninterrupted presentation in full target language
+**Individual Oral (IO) — IB Language B Internal Assessment**
+
+**Format:** Oral | **Weight:** SL 25% / HL 20% | **Length:** 12–15 minutes total | **Assessed by:** Teacher, moderated by IB
+
+- **Part 1 (7–10 min):** Describe and respond to an unseen visual stimulus (image, photograph, or infographic) connected to the course themes. No preparation time — student speaks first.
+  - Structure: describe what you see → interpret significance → connect to a course theme or global issue → personal reflection or opinion
+- **Part 2 (5 min discussion):** Teacher-led discussion on the course themes — may go beyond the stimulus topic
+
+**Assessment criteria (total 30 marks):**
+
+| Criterion | Marks | What it tests |
+|---|---|---|
+| A — Language | 10 | Accuracy, range of vocabulary and structures, fluency |
+| B — Message | 10 | Relevance, depth of ideas, engagement with the stimulus and themes |
+| C — Interactive skills (HL only) / Engagement (SL) | 10 | How well the student responds to follow-up questions; spontaneity |
+
+**Preparation tips:**
+- Practise describing images for 2 minutes without stopping — build fluency, not perfection
+- Learn connective phrases: "This suggests that...", "This is linked to the theme of...", "From my perspective..."
+- Revise vocabulary for all course themes (identities, experiences, human ingenuity, social organisation, sharing the planet) — any could appear in the stimulus
+
+**IB ab initio Individual Oral:**
+
+**Format:** Oral | **Weight:** 25% | **Length:** 7–10 minutes | **Assessed by:** Teacher, moderated by IB
+
+- Similar structure but the visual stimulus will relate to simpler everyday themes (travel, food, school, health, celebrations)
+- Assessment criteria: language accuracy and message — lower complexity than Language B
 
 **Written Assignment / HL Essay**
 - HL only: intertextual essay comparing a literary work in the target language

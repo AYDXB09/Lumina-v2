@@ -154,6 +154,12 @@ export async function fetchMessages(authFetch, sessionId) {
   return res.json();
 }
 
+export async function deleteSession(authFetch, sessionId) {
+  const res = await authFetch(`${BASE}/api/chat/sessions/${sessionId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete session");
+  return res.json();
+}
+
 // ------------------------------------------------------------------ //
 // Streaming chat                                                      //
 // ------------------------------------------------------------------ //

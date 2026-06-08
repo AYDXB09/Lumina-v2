@@ -14,8 +14,9 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import { useIsMobile } from "../hooks/useIsMobile.js";
-import { streamChat, fetchSessions, fetchMessages } from "../api.js";
+import { streamChat, fetchSessions, fetchMessages, deleteSession } from "../api.js";
 import ChatMessage from "./ChatMessage.jsx";
+
 
 // ---- Icons ----
 const MenuIcon = () => (
@@ -93,8 +94,9 @@ export default function ChatView({
   const inputRef     = useRef(null);
   const fileInputRef = useRef(null);
   const attachMenuRef = useRef(null);
-  const sessionIdRef  = useRef(session?.id ?? null);
-  const sendTimeRef   = useRef(null);  // Date.now() when message was sent
+  const sessionIdRef   = useRef(session?.id ?? null);
+  const historyGenRef  = useRef(0);    // incremented by New Chat to cancel in-flight history loads
+  const sendTimeRef    = useRef(null); // Date.now() when message was sent
   const timerRef      = useRef(null);  // setInterval handle
   const messagesRef   = useRef([]);    // always-current messages (avoids stale closure in registerSend)
   const abortRef      = useRef(null);  // AbortController.abort fn — set during streaming
@@ -134,16 +136,17 @@ export default function ChatView({
     sessionIdRef.current = session?.id ?? null;
     setMessages([]);
     setHistoryLoading(true);
+    const myGen = ++historyGenRef.current; // capture generation; New Chat increments to supersede this
 
     (async () => {
       try {
         const { sessions } = await fetchSessions(authFetch, course?.id ?? null);
-        if (cancelled) return;
+        if (cancelled || historyGenRef.current !== myGen) return;
         if (sessions?.length > 0) {
           const last = sessions[0];
           sessionIdRef.current = last.id;
           const { messages: msgs } = await fetchMessages(authFetch, last.id);
-          if (!cancelled) {
+          if (!cancelled && historyGenRef.current === myGen) {
             // Restore timer badge from thinking.response_ms saved at send time
             const withTimers = (msgs ?? []).map(m =>
               m.role === "assistant" && m.thinking?.response_ms
@@ -154,7 +157,7 @@ export default function ChatView({
           }
         }
       } catch { /* No history — start fresh */ }
-      finally { if (!cancelled) setHistoryLoading(false); }
+      finally { if (!cancelled && historyGenRef.current === myGen) setHistoryLoading(false); }
     })();
 
     return () => { cancelled = true; };
@@ -169,12 +172,17 @@ export default function ChatView({
       );
       if (!ok) return;
     }
+    // Cancel any in-flight history restore for this course
+    historyGenRef.current++;
+    // Delete from Supabase so it can't be restored on navigate-back
+    const deletedId = sessionIdRef.current;
     sessionIdRef.current = null;
+    if (deletedId) deleteSession(authFetch, deletedId).catch(() => {});
     setMessages([]);
     setInput("");
     setAttachments([]);
     inputRef.current?.focus();
-  }, [loading, messages.length]);
+  }, [loading, messages.length, authFetch]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

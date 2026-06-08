@@ -226,3 +226,17 @@ async def get_messages(session_id: str, user=Depends(get_current_student)):
     ).eq("session_id", session_id).order("created_at").execute()
 
     return {"messages": messages.data}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, user=Depends(get_current_student)):
+    sb = get_supabase()
+    # Verify ownership before deleting
+    session = sb.table("chat_sessions").select("id").eq(
+        "id", session_id
+    ).eq("user_id", user["sub"]).maybe_single().execute()
+    if not session.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    sb.table("chat_messages").delete().eq("session_id", session_id).execute()
+    sb.table("chat_sessions").delete().eq("id", session_id).execute()
+    return {"ok": True}

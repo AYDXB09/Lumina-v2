@@ -27,7 +27,7 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 - Canvas API Key auth (JWT + httpOnly refresh cookie, sessions in Supabase)
 - Provider abstraction layer: AI (K2 / OpenRouter / Anthropic / NVIDIA NIM / Groq / Gemini), Storage (Supabase), Email (Resend)
 - Canvas sync: courses, modules, pages, assignments, announcements → Supabase
-- pgvector RAG: sentence-transformers all-MiniLM-L6-v2 (384-dim), HNSW index
+- pgvector RAG: Gemini embedding API `gemini-embedding-001` (768-dim), HNSW index — no local model
 - SSE streaming chat with tool-call loop (K2/OpenRouter/Anthropic) or direct stream (DeepSeek/Llama/Groq)
 - SSE heartbeat pings every 5s (queue-based, not wait_for) — prevents Railway proxy from dropping idle connections
 - Chat history persisted to Supabase, restored on course switch; capped at 4 messages sent to AI (token budget)
@@ -43,9 +43,13 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 - Mind map: pure React SVG, hierarchical tree layout, zoom/pan, "Ask AI" integration
 - Student material upload: multi-file + folder select, filename tag extraction, tag-aware embeddings
 - Admin knowledge base: shared_materials table, grade/subject/doc_type tagging, bulk upload
-- Embedding model pre-warmed on startup (eliminates cold-start delay on first sign-in)
-- Subject prompt modules: Economics (EconGraphs iframes), Mathematics (Desmos), Physics (PhET) — lazy-loaded per course
-- Interactive widgets: `[ECONGRAPH: id]`, `[DESMOS: id]`, `[PHET: id]` markers rendered as collapsible iframes in chat
+- No local embedding model — Gemini API call (~150ms) replaces sentence-transformers (was 11s on Railway CPU)
+- Subject prompt modules: Economics, Mathematics, Physics, Chemistry, Biology, English, History, Languages, Psychology, CS, Geography, **Global Politics** — lazy-loaded per course
+- Interactive widgets: `[ECONGRAPH: id]`, `[DESMOS: id]`, `[PHET: id]`, `[KINETIC: id]`, `[LIFESCIENCE: id]`, `[EXPLORABLES: id]` markers rendered as collapsible iframes
+- New Chat button in ChatView header — deletes session + messages from Supabase (fire-and-forget), clears local state
+- SettingsModal Account tab shows live AI model/provider from `/health` endpoint
+- Comprehensive system prompt: grades, general knowledge, IB EE/IA/TOK, YouTube links, citations, error analysis, deadline awareness, response length calibration
+- **IB IA full reference** injected into system prompt: all DP subjects with word counts, mark weights, criteria names, typical timeline, official IB links — AI never deflects IA questions to Canvas
 
 ### Not yet ported from v1
 - Adaptive quiz generator
@@ -125,11 +129,12 @@ AI_PROVIDER=gemini      → GeminiProvider  (Google AI Studio)
   - Controlled by `MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama")` in `backend/chat/engine.py`
 - Tool loop also disabled whenever `course_id` is set (context already pre-injected)
 
-**Currently running:** Groq `llama-3.3-70b-versatile` (3–8s responses)
-**Railway env vars needed:** `AI_PROVIDER=groq`, `GROQ_API_KEY=...`, `GROQ_MODEL=llama-3.3-70b-versatile`
+**Currently running:** Gemini `gemini-2.5-flash-lite` (fast, free tier via Google AI Studio)
+**Railway env vars needed:** `AI_PROVIDER=gemini`, `GEMINI_API_KEY=...`, `GEMINI_MODEL=gemini-2.5-flash-lite`
+**Embedding:** `GEMINI_EMBEDDING_MODEL=gemini-embedding-001`, `GEMINI_EMBEDDING_DIMS=768` (same API key)
 
 **Groq free tier limits:** 12,000 TPM. System prompt ~3,200 tokens + 4-message history. Stays under limit for normal use.
-If hitting limits: switch model in Supabase to `llama-3.1-8b-instant` (higher TPM, lower quality).
+If hitting limits: update `GROQ_MODEL=llama-3.1-8b-instant` in Railway and restart.
 
 **Performance:** Course selected → assignments + quizzes + calendar (15-day window) + top 3 RAG chunks pre-injected → 1 AI call per message.
 
@@ -152,9 +157,12 @@ If hitting limits: switch model in Supabase to `llama-3.1-8b-instant` (higher TP
 | `SUPABASE_SERVICE_KEY` | ... | Service role key |
 | `JWT_SECRET` | ... | Same as local .env |
 | `ENCRYPTION_KEY` | ... | Fernet key |
-| `AI_PROVIDER` | `groq` | ⚠️ Update if not done yet |
-| `GROQ_API_KEY` | `gsk_...` | |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | ⚠️ Update if not done yet |
+| `AI_PROVIDER` | `gemini` | |
+| `GEMINI_API_KEY` | `AIza...` | Google AI Studio key |
+| `GEMINI_MODEL` | `gemini-2.5-flash-lite` | |
+| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` | |
+| `GEMINI_EMBEDDING_DIMS` | `768` | |
+| `GROQ_API_KEY` | `gsk_...` | Keep for fallback |
 | `NVIDIA_API_KEY` | ... | Keep for fallback |
 | `REFRESH_EXPIRE_DAYS` | `90` | |
 | `RESEND_API_KEY` | ... | |
@@ -162,7 +170,7 @@ If hitting limits: switch model in Supabase to `llama-3.1-8b-instant` (higher TP
 
 ### Post-deploy checklist
 - [x] Railway deployed and live
-- [x] `/health` returns `{"status":"ok","provider":"groq",...}`
+- [x] `/health` returns live provider/model from `get_active_config()` (not hardcoded env var)
 - [x] SSE heartbeat prevents proxy timeout
 - [ ] Test login with Canvas API key on Railway
 - [ ] Enable "Remove on Inactivity" in Railway service settings
@@ -219,7 +227,7 @@ SettingsModal shows "Admin KB" tab for matching roles.
 ## Key Files
 | File | Purpose |
 |---|---|
-| `backend/main.py` | FastAPI app, routes wired, SPA catch-all; embedder pre-warm in lifespan |
+| `backend/main.py` | FastAPI app, routes wired, SPA catch-all; no pre-warm (Gemini API replaces local model) |
 | `backend/auth/routes.py` | Canvas API key login, JWT, refresh, logout; first-login auto-index |
 | `backend/auth/middleware.py` | JWT dependency, role guards |
 | `backend/auth/canvas.py` | Canvas token validation + retrieval abstraction |
@@ -230,20 +238,22 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `backend/cal/__init__.py` | Empty — package named `cal` (NOT `calendar` — stdlib conflict) |
 | `backend/cal/parser.py` | iCal fetch+parse: fetch_and_parse(), RRULE expansion, webcal:// handling |
 | `backend/cal/routes.py` | /api/calendar — sources CRUD, events, sync, prompt endpoint |
-| `backend/rag/embedder.py` | all-MiniLM-L6-v2 singleton; pre-warmed on startup |
+| `backend/rag/embedder.py` | Gemini embedding API (`gemini-embedding-001`, 768-dim); async `embed()` and `embed_one()` |
 | `backend/rag/indexer.py` | chunk + embed + store in pgvector; `_build_tag_prefix()` for tag-aware embeddings |
 | `backend/rag/search.py` | match_index_chunks + match_student_materials RPC |
 | `backend/chat/engine.py` | Tool-call loop + direct stream, system prompt builder (_build_system_prompt) |
-| `backend/chat/prompt.py` | Socratic tutor system prompt |
+| `backend/chat/prompt.py` | Socratic tutor system prompt + full IB IA reference table (all subjects, marks, deadlines, links) |
 | `backend/chat/tools.py` | ToolExecutor — reads from Supabase cache |
-| `backend/chat/routes.py` | POST /api/chat/stream (SSE), sessions CRUD |
+| `backend/chat/routes.py` | POST /api/chat/stream (SSE), sessions CRUD; DELETE /api/chat/sessions/{id} |
 | `backend/materials/routes.py` | Multi-file upload, filename tag extraction, student RAG indexing |
 | `backend/mindmap/routes.py` | /api/mindmap/{course_id} — get, save, regenerate |
 | `backend/admin/routes.py` | Admin KB upload (shared_materials), list, delete, patch tags |
 | `backend/providers/ai/` | K2, OpenRouter, Anthropic, NVIDIA, Groq, Gemini providers |
 | `backend/providers/ai/__init__.py` | Provider factory — reads `AI_PROVIDER` env var, builds singleton instance |
-| `backend/chat/subject_prompts/` | Per-subject prompt modules; dispatcher lazy-imports only matching subject |
-| `frontend/src/components/InteractiveWidget.jsx` | Collapsible iframe for ECONGRAPH/DESMOS/PHET markers |
+| `backend/chat/subject_prompts/` | 12 subject modules (Economics, Maths, Physics, Chemistry, Biology, English, History, Languages, Psychology, CS, Geography, Global Politics); dispatcher lazy-imports only matching subject |
+| `backend/chat/subject_prompts/__init__.py` | Registry + dispatcher; add new subjects here |
+| `backend/chat/subject_prompts/global_politics.py` | IB Global Politics — exam technique, key concepts, Engagement Activity IA (criteria A–C, 30 marks) |
+| `frontend/src/components/InteractiveWidget.jsx` | Collapsible iframes for ECONGRAPH/DESMOS/PHET/KINETIC/LIFESCIENCE/EXPLORABLES markers |
 | `frontend/src/components/ChatMessage.jsx` | Parses widget markers from AI output via parseSegments() |
 | `backend/config.py` | All env vars |
 | `frontend/src/App.jsx` | Auth gate → MainLayout; auto-selects first course; chatSendRef for RightPanel→Chat |
@@ -255,7 +265,7 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `frontend/src/components/RightPanel.jsx` | 5-tab panel: Assignments / Notices / Quizzes / Feedback / Mind Map |
 | `frontend/src/components/MindMapView.jsx` | Pure React SVG mind map; drag/zoom/fit; "Ask AI" integration |
 | `frontend/src/components/SettingsModal.jsx` | 5-tab modal: General / Calendar / Materials / Admin KB / Account |
-| `frontend/src/api.js` | streamChat(), fetchCourses(), uploadMaterial() (multi-file), fetchMindMap(), fetchAdminMaterials(), etc. |
+| `frontend/src/api.js` | streamChat(), fetchCourses(), uploadMaterial() (multi-file), fetchMindMap(), fetchAdminMaterials(), deleteSession(), etc. |
 | `.mcp.json` | Supabase MCP config |
 
 ---
@@ -277,7 +287,7 @@ SettingsModal shows "Admin KB" tab for matching roles.
 ### Canvas Sync
 - `courses` — id, canvas_course_id, school_id, name, course_code, canvas_data JSONB, synced_at
 - `index_chunks` — id, course_id, source_type, source_id, content,
-  embedding vector(384), metadata JSONB
+  embedding vector(768), metadata JSONB
   - source_type: page / assignment / announcement / file / **quiz**
   - metadata includes: title, due_at, is_exam (bool), time_limit, points_possible
   - HNSW index on embedding (vector_cosine_ops)
@@ -292,7 +302,7 @@ SettingsModal shows "Admin KB" tab for matching roles.
 
 ### Student Activity
 - `student_materials` — id, user_id, course_id, filename, content,
-  embedding vector(384), metadata JSONB, uploaded_at
+  embedding vector(768), metadata JSONB, uploaded_at
   - metadata includes: subjects[], grade_levels[], doc_type, original_filename, size_bytes
 - `chat_sessions` — id, user_id, course_id, title, created_at, updated_at
 - `chat_messages` — id, session_id, role (user/assistant), content, thinking JSONB, created_at
@@ -301,7 +311,7 @@ SettingsModal shows "Admin KB" tab for matching roles.
 - `mind_maps` — id, user_id, course_id, graph_data JSONB, updated_at
 
 ### Admin Knowledge Base
-- `shared_materials` — id, school_id, uploaded_by, filename, content, embedding vector(384),
+- `shared_materials` — id, school_id, uploaded_by, filename, content, embedding vector(768),
   tags JSONB, metadata JSONB, uploaded_at
   - tags: {grade_levels[], subjects[], doc_type, expiry_date, applicable, chunk}
   - metadata: {title, description, source, chunk, total_chunks}
@@ -352,7 +362,7 @@ Injects in order:
 4. Calendar events from `calendar_cache` — **15-day** forward window, all sources merged
    - Multi-day events displayed as range: `"Sat 10 May–Sun 11 May"` — AI told ALL days are blocked
    - Filter: `(start_date <= window_end_date) AND (end_date >= now_date)` — catches ongoing multi-day events
-5. Subject prompt module (Economics/Physics/Maths) — lazy-loaded only for matching course
+5. Subject prompt module (11 subjects) — lazy-loaded only for matching course
 6. Proactive RAG chunks — top 3 results from semantic search on user's query
 
 ### Socratic Method (prompt.py)
@@ -371,9 +381,11 @@ Injects in order:
 
 ### RAG
 - pgvector in Supabase (replaced ChromaDB)
-- HNSW index on index_chunks.embedding and student_materials.embedding
+- HNSW index on index_chunks.embedding, student_materials.embedding, shared_materials.embedding
 - Chunk size: 500 chars, 100 char overlap
-- Embeddings: all-MiniLM-L6-v2 (384-dim), normalized
+- Embeddings: Gemini `gemini-embedding-001` (768-dim), normalized, via async API call (~150ms)
+- No local model — `sentence-transformers` and `numpy` removed from requirements
+- `embed()` and `embed_one()` in `rag/embedder.py` are async — always `await` them
 
 ### Tag-Aware Embeddings (student materials + admin KB)
 - Before embedding, `_build_tag_prefix(metadata)` builds a header like:
@@ -404,9 +416,8 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - Files processed sequentially with per-file error handling; partial success is possible
 
 ### Startup Performance
-- Embedding model (`all-MiniLM-L6-v2`) pre-warmed in FastAPI lifespan hook via `ThreadPoolExecutor`
-- Eliminates 2–3 s cold-start on first sign-in / first upload
-- Runs in background thread — does not block the event loop during startup
+- No local embedding model — Railway starts faster, uses less memory
+- Embedding is a ~150ms Gemini API call per request; no pre-warm needed
 
 ### Canvas Sync
 - Triggered manually via POST /api/canvas/courses/sync
@@ -436,6 +447,7 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **`messagesRef`:** Always-current ref kept in sync with `messages` state via `useEffect`. `handleSend` reads from `messagesRef.current` instead of the `messages` closure — prevents stale closure bug where RightPanel "Ask AI" would wipe existing messages (and their timer badges) by spreading an empty initial array
 - **WelcomeScreen quick actions:** 4 course-specific buttons + 2 global; use `handleSend(overrideText)` pattern
 - `registerSend` prop: ChatView exposes `fireQuickAction` fn to App.jsx via callback; App stores in `chatSendRef`, passes to RightPanel as `onAskAI`
+- **New Chat:** calls `DELETE /api/chat/sessions/{id}` (fire-and-forget) before clearing local state. Session + messages are deleted from Supabase immediately — navigate-away-and-back cannot restore the cleared conversation. Do NOT use sessionStorage or module-level flags for this — React Strict Mode double-invokes effects and `key`-based remounts reset all refs; only the DB delete is reliable.
 
 ### Frontend — RightPanel
 - 5 tabs: Assignments / Notices / Quizzes / Feedback / Mind Map
@@ -475,7 +487,8 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **Gemini model names for new accounts:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash` all return 404 "not available to new users". Query `/api/debug/ai-ping` (returns model list) to find available models.
 - **global_config table:** `ai_config` has a school_id FK constraint — cannot use NULL. Use `global_config` (key/value, no FK) for platform-wide settings.
 - **Stop button:** Must call `abortRef.current?.()` on click when `loading=true`. Button disabled state must NOT include `|| loading` — that makes it unclickable when streaming.
-- **Proactive RAG is async:** `rag_search()` is async — call with `await`, not via `asyncio.to_thread`. Its internals (embedder, Supabase) are sync but the function is declared async.
+- **Proactive RAG is async:** `rag_search()` is async — call with `await`. `embed()` and `embed_one()` are also async (Gemini API calls) — never call them without `await`.
+- **Gemini thinking tokens:** `gemini-2.5-flash` variants have built-in thinking. Disabled via `extra_body={"thinking": {"type": "disabled"}}` in `providers/ai/gemini.py` — do not remove this.
 
 ---
 
@@ -518,7 +531,6 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 - [x] Mind map — pure React SVG, zoom/pan, Ask AI integration
 - [x] Student material upload — multi-file + folder, filename tag extraction, tag-aware embeddings
 - [x] Admin knowledge base — shared_materials, grade/subject/doc_type tagging, bulk upload
-- [x] Embedding model pre-warmed on startup (fast first sign-in)
 - [x] No "All Courses" — first course auto-selected, courses are project workspaces
 - [x] Calendar settings hints → inline tooltips (Fetch window, Sync frequency)
 - [x] Personal calendars in compact 2×2 grid in Settings
@@ -535,20 +547,30 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 - [x] Timer badge persistence fix — `messagesRef` prevents stale closure
 - [x] Subject prompt modules — Economics (EconGraphs), Maths (Desmos), Physics (PhET)
 - [x] InteractiveWidget component — collapsible iframes for ECONGRAPH/DESMOS/PHET markers
+- [x] Switched to Gemini `gemini-2.5-flash-lite` (AI_PROVIDER=gemini in Railway)
+- [x] Gemini embedding API (768-dim) — replaced sentence-transformers, 11s → ~150ms per query
+- [x] New Chat button in ChatView with confirmation dialog
+- [x] Comprehensive system prompt — grades, IB EE/IA/TOK, YouTube links, error analysis, 11 subject modules
+- [x] New interactive widgets: KINETIC (KineticGraphs), LIFESCIENCE (EPAM Miew), EXPLORABLES
+- [x] Subject modules: Chemistry, Biology, English, History, Languages, Psychology, CS, Geography
+- [x] New Chat bug fix — deletes session from Supabase; navigate-away-and-back no longer restores cleared conversation
+- [x] IB IA full reference in system prompt — all subjects, word counts, mark weights, criteria, timeline, official links
+- [x] IB IA criteria in every subject module — Math (A–E, 20 marks), Physics/Chem/Bio (A–E, 24 marks), Economics (commentary criteria + HL research project), English (IO criteria), History, Psychology, Languages (IO), Global Politics (Engagement Activity)
+- [x] Global Politics subject module — new (was missing); exam technique + key concepts + IA
 - [ ] Study plan generation
-- [ ] Switch Railway to Groq (set AI_PROVIDER=groq, GROQ_API_KEY, GROQ_MODEL in Railway vars)
 
 ### Phase 2 — Subject Modules (foundation built, expand content)
 **Economics (IB + AP):**
 - [x] EconGraphs iframe integration (6 pilot graphs)
+- [x] KineticGraphs integration (game theory + advanced diagrams)
 - [x] IBDP exam technique injected into Economics course prompts
 - [ ] AP Micro / AP Macro split prompts (ap_micro.py, ap_macro.py)
 - [ ] Custom SVG for missing diagrams (price ceiling/floor, Lorenz curve, standalone AD-AS, tariff)
 
-**Later subjects (same pattern):**
-- [ ] Chemistry subject prompt + Ketcher 2D molecules
-- [ ] Biology subject prompt
-- [ ] Chemistry/Biology 3D structures — Miew
+**Sciences:**
+- [x] Chemistry subject prompt + PhET sims + EPAM LifeScience molecular viewer
+- [x] Biology subject prompt + PhET sims + EPAM LifeScience
+- [ ] Ketcher 2D molecule drawing for organic chemistry
 
 ### Phase 3 — Full student experience
 - [ ] Adaptive quiz generator (port from v1)

@@ -55,10 +55,28 @@ def _build_prompt() -> str:
 - For research design FRQ: state hypothesis, identify IV/DV, design procedure, discuss ethical considerations
 - High-yield topics: research methods, biological bases, sensation/perception, learning, memory, cognition, development, personality, abnormal, social, treatment
 
-### IA (Internal Assessment) — IB
-- Replication of a published study — must cite the original
-- Must include: introduction, exploration, analysis, evaluation, references
-- Sample: at least 10 participants per condition; describe sampling method
-- Inferential statistics: Mann-Whitney U (non-parametric), or appropriate test — state the null and alternative hypothesis
-- Ethical considerations: informed consent, right to withdraw, debrief — all must be addressed
+### IA (Internal Assessment) — IB Psychology
+
+**Format:** Written report | **Weight:** 25% of final grade | **Word count:** 2,200 words (excluding references, appendices) | **Assessed by:** Teacher, moderated by IB
+
+The IA is a replication (or partial replication) of a published psychological study using a simple experimental or quasi-experimental design.
+
+#### Assessment criteria (total 22 marks)
+
+| Criterion | Marks | What it tests |
+|---|---|---|
+| A — Introduction | 6 | Describes background theory and original study; clearly states aim and hypothesis (null + alternative) |
+| B — Exploration | 4 | Identifies design (independent samples, repeated measures, matched pairs); states IV and DV precisely; describes sampling method; lists ethical procedures |
+| C — Analysis | 6 | Correctly calculated descriptive statistics (mean, median, SD); appropriate graph; inferential test chosen and applied correctly; result interpreted (accept/reject null) |
+| D — Evaluation | 6 | Discusses findings in relation to original study; identifies internal and external validity issues; suggests realistic modifications |
+
+#### Key requirements
+- **Participants:** minimum 10 per condition (independent samples) or 10 total (repeated measures)
+- **Inferential test:** Mann-Whitney U (independent samples, ordinal data) is the most common — always state the null hypothesis, calculated U value, critical value, and conclusion
+- **Ethics:** informed consent form, right to withdraw, debrief script, and anonymity — all must be included in appendices and addressed in Criterion B
+- **Citation:** the original study being replicated must be fully cited; secondary sources must be cited too
+- **Word count trap:** the 2,200-word limit is strict — appendices (raw data, consent forms, debriefs) do NOT count toward the limit
+
+#### Official resources
+- IB Psychology subject page: https://www.ibo.org/programmes/diploma-programme/curriculum/individuals-and-societies/psychology/
 """
