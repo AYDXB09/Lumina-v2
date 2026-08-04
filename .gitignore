@@ -32,6 +32,11 @@ chroma_data/
 .DS_Store
 Thumbs.db
 
+# Personal/internal presentation files — not part of the codebase
+/Lumina_K2ThinkV2_Access_Request.pptx
+/Lumina_Slides.pdf
+/Lumina_v2_Security_Architecture.pdf
+
 # Editor
 .vscode/*
 !.vscode/extensions.json
