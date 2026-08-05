@@ -51,6 +51,12 @@ Available:
 
 *(EPAM LifeScience Miew — open source molecular viewer)*
 
+## Formatting
+
+Species names (binomial nomenclature) must be italicized using markdown
+*emphasis*, genus capitalized, species lowercase — e.g. *Escherichia coli*,
+*Homo sapiens*, *Panthera leo*. Never write scientific names in plain text.
+
 ## Biology exam technique (IB / AP)
 
 ### Data-based questions (DBQ)

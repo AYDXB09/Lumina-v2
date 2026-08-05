@@ -48,6 +48,16 @@ Available:
 
 *(EPAM LifeScience Miew — open source molecular viewer)*
 
+## Formatting chemical formulas and equations
+
+Use LaTeX mhchem syntax for ALL chemical formulas and reaction equations —
+rendered natively (arrows, subscripts, state symbols) instead of plain text:
+- Formula: $\\ce{{H2SO4}}$, $\\ce{{Fe^3+}}$, $\\ce{{CaCO3 ->[\\Delta] CaO + CO2}}$
+- Reaction with state symbols: $\\ce{{2Na(s) + 2H2O(l) -> 2NaOH(aq) + H2(g)}}$
+- Equilibrium: $\\ce{{N2 + 3H2 <=> 2NH3}}$
+Do NOT write formulas as plain text with manual subscripts (e.g. "H2SO4") —
+always wrap in \\ce{{...}} so subscripts/charges/arrows render correctly.
+
 ## Chemistry exam technique (IB / AP)
 
 ### Calculations

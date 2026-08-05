@@ -256,7 +256,10 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `backend/chat/subject_prompts/` | 12 subject modules (Economics, Maths, Physics, Chemistry, Biology, English, History, Languages, Psychology, CS, Geography, Global Politics); dispatcher lazy-imports only matching subject |
 | `backend/chat/subject_prompts/__init__.py` | Registry + dispatcher; add new subjects here |
 | `backend/chat/subject_prompts/global_politics.py` | IB Global Politics — exam technique, key concepts, Engagement Activity IA (criteria A–C, 30 marks) |
+| `backend/chat/subject_prompts/ap_micro.py` / `ap_macro.py` | AP Micro/Macro — College Board exam format (MCQ+FRQ), unit framework; dispatched from `economics.py`, shares `ECONGRAPH_MAP` |
 | `frontend/src/components/InteractiveWidget.jsx` | Collapsible iframes for ECONGRAPH/DESMOS/PHET/KINETIC/LIFESCIENCE/EXPLORABLES markers |
+| `frontend/src/components/EconSVGWidget.jsx` | Collapsible native SVG (no iframe) for `[ECONSVG: id]` markers — price ceiling/floor, Lorenz curve, AD-AS standalone, tariff |
+| `frontend/src/components/econ-svgs/` | 4 pure React SVG diagram components, theme-aware via CSS variables |
 | `frontend/src/components/ChatMessage.jsx` | Parses widget markers from AI output via parseSegments() |
 | `backend/config.py` | All env vars |
 | `frontend/src/App.jsx` | Auth gate → MainLayout; auto-selects first course; chatSendRef for RightPanel→Chat |
@@ -595,13 +598,16 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 - [x] EconGraphs iframe integration (6 pilot graphs)
 - [x] KineticGraphs integration (game theory + advanced diagrams)
 - [x] IBDP exam technique injected into Economics course prompts
-- [ ] AP Micro / AP Macro split prompts (ap_micro.py, ap_macro.py)
-- [ ] Custom SVG for missing diagrams (price ceiling/floor, Lorenz curve, standalone AD-AS, tariff)
+- [x] AP Micro / AP Macro split prompts (`ap_micro.py`, `ap_macro.py`) — dispatched from `economics.py` by course-name detection; single-fire, no double-injection with IB content
+- [x] Custom SVG diagrams for price ceiling/floor, Lorenz curve, standalone AD-AS, tariff — pure React SVG (`frontend/src/components/econ-svgs/`), new `[ECONSVG: id]` marker, no iframe needed
 
 **Sciences:**
 - [x] Chemistry subject prompt + PhET sims + EPAM LifeScience molecular viewer
 - [x] Biology subject prompt + PhET sims + EPAM LifeScience
-- [ ] Ketcher 2D molecule drawing for organic chemistry
+- [x] `mhchem` KaTeX extension for chemical formulas/equations (`\ce{...}`) — verified rendering real markup, not just import-resolves
+- [x] Biology binomial nomenclature italics instruction
+- [x] Math/Physics advanced LaTeX guidance (vectors, matrices, piecewise functions, units) — base prompt already mandated LaTeX generally, this adds constructs not previously covered
+- [ ] Ketcher 2D molecule drawing for organic chemistry — **attempted, reverted.** `ketcher-standalone.zip` from the official GitHub release is a JS library bundle (`ketcher-react`), not a ready static HTML app — no `index.html`, no README. No confirmed public hosted demo either (checked `lifescience.opensource.epam.com/ketcher/` — that's documentation, not the live editor). Building this properly requires writing a real init wrapper against Ketcher's React API, more work than the self-host-and-iframe pattern used for every other widget. Needs its own scoped session.
 
 ### Phase 3 — Full student experience
 - [ ] Adaptive quiz generator (port from v1)

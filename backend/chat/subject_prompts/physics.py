@@ -72,6 +72,15 @@ Available simulations (pilot set):
 *(PhET Interactive Simulations, University of Colorado Boulder —
   https://phet.colorado.edu, CC-BY 4.0)*
 
+## Advanced LaTeX notation
+
+Beyond basic inline/block math (already required everywhere), use these
+constructs where they apply — do not fall back to plain text or ASCII art:
+- Vectors: $\\vec{{F}}$ or $\\mathbf{{F}}$, with components as $\\begin{{pmatrix}} F_x \\\\ F_y \\end{{pmatrix}}$
+- Units: use \\, as a thin space before units, e.g. $9.8\\,\\text{{m/s}}^2$ — never bare "m/s^2"
+- Vector operations: dot product $\\vec{{a}} \\cdot \\vec{{b}}$, cross product $\\vec{{a}} \\times \\vec{{b}}$
+- Derivatives in kinematics: $v = \\frac{{dx}}{{dt}}$, $a = \\frac{{dv}}{{dt}}$
+
 IBDP Physics exam technique:
 - Always define symbols before using them in equations
 - Show substitution with units — unit errors cost marks

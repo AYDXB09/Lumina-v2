@@ -50,9 +50,25 @@ _KEYWORDS = ("economics", "econ", "micro", "macro")
 
 
 def inject_if_match(course_name: str, extra: str) -> str:
-    """Standard interface — called by subject_prompts dispatcher."""
-    if not any(k in course_name.lower() for k in _KEYWORDS):
+    """
+    Standard interface — called by subject_prompts dispatcher.
+
+    Dispatches to AP Micro/Macro modules when the course name indicates AP,
+    otherwise falls through to IB content below. Kept as a single registry
+    entry (not two separate ones) so AP and IB never both fire on one course.
+    """
+    name_lower = course_name.lower()
+    if not any(k in name_lower for k in _KEYWORDS):
         return extra
+
+    is_ap = "ap " in name_lower or name_lower.startswith("ap") or " ap" in name_lower
+    if is_ap and "macro" in name_lower:
+        from chat.subject_prompts.ap_macro import inject_if_match as ap_macro_inject
+        return ap_macro_inject(course_name, extra)
+    if is_ap and "micro" in name_lower:
+        from chat.subject_prompts.ap_micro import inject_if_match as ap_micro_inject
+        return ap_micro_inject(course_name, extra)
+
     return extra + _build_prompt()
 
 
@@ -88,11 +104,14 @@ Additional interactive tools — embed using [KINETIC: graph_id]:
   [cobb_douglas]       — Cobb-Douglas Production Function (HL)
   [budget_constraint]  — Budget Constraint & Indifference Curves (HL)
 
-Not yet available as interactive graphs (describe in words):
-- Price ceiling / price floor
-- Lorenz curve / Gini coefficient
-- AD-AS standalone (use [adas_phillips] — it includes the Phillips curve)
-- Exchange rate, trade, tariff diagrams
+Additional static labeled diagrams — embed using [ECONSVG: diagram_id]:
+  [price_ceiling_floor] — Price Ceiling & Price Floor (shortage/surplus)
+  [lorenz_curve]         — Lorenz Curve & Gini Coefficient
+  [adas_standalone]      — AD-AS Diagram (standalone, no Phillips curve)
+  [tariff]                — Tariff Diagram (consumer/producer surplus, DWL, revenue)
+
+Not yet available as interactive graphs or diagrams (describe in words):
+- Exchange rate / balance of payments diagrams
 
 IBDP exam technique:
 - Draw diagrams BEFORE written analysis — IB awards diagram marks separately

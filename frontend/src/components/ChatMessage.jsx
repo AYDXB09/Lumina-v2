@@ -17,10 +17,12 @@
 
 import React, { useMemo } from "react";
 import katex from "katex";
+import "katex/contrib/mhchem"; // registers \ce{...} for chemical formulas/equations
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import LuminaLogo from "./LuminaLogo.jsx";
 import InteractiveWidget from "./InteractiveWidget.jsx";
+import EconSVGWidget from "./EconSVGWidget.jsx";
 import { useSettings } from "../contexts/SettingsContext.jsx";
 
 // ---- Configure marked ----
@@ -92,9 +94,11 @@ function renderMarkdown(raw) {
 // Interactive widget marker parser                                    //
 // Splits AI content into text segments and [MARKER: id] segments.    //
 // Supports: ECONGRAPH, DESMOS, PHET, KINETIC, LIFESCIENCE, EXPLORABLES //
+// (iframe-based, see InteractiveWidget.jsx) and ECONSVG (native React //
+// SVG, see EconSVGWidget.jsx — no iframe needed for static diagrams). //
 // ------------------------------------------------------------------ //
 
-const WIDGET_RE = /\[(ECONGRAPH|DESMOS|PHET|KINETIC|LIFESCIENCE|EXPLORABLES):\s*([^\]]+)\]/g;
+const WIDGET_RE = /\[(ECONGRAPH|DESMOS|PHET|KINETIC|LIFESCIENCE|EXPLORABLES|ECONSVG):\s*([^\]]+)\]/g;
 
 function parseSegments(content) {
   const segments = [];
@@ -167,7 +171,11 @@ export default function ChatMessage({ role, content, isStreaming = false, images
           <>
             {segments?.map((seg, i) =>
               seg.type === "widget" ? (
-                <InteractiveWidget key={i} marker={seg.marker} id={seg.id} />
+                seg.marker === "ECONSVG" ? (
+                  <EconSVGWidget key={i} id={seg.id} />
+                ) : (
+                  <InteractiveWidget key={i} marker={seg.marker} id={seg.id} />
+                )
               ) : (
                 <div
                   key={i}

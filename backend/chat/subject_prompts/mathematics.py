@@ -66,6 +66,15 @@ Additional interactive resources — recommend these as URLs when relevant:
 - **mafs.dev** (https://mafs.dev) — beautiful animated math visualisations; great for understanding transformations, vectors, and linear algebra concepts visually
 - **explorabl.es/math** (https://explorabl.es/math) — interactive explorable explanations for probability, statistics, and mathematical thinking
 
+## Advanced LaTeX notation
+
+Beyond basic inline/block math (already required everywhere), use these
+constructs where they apply — do not fall back to plain text or ASCII art:
+- Matrices: $\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$
+- Vectors: $\\vec{v}$ or $\\mathbf{v}$, components as $\\begin{pmatrix} x \\\\ y \\end{pmatrix}$
+- Piecewise functions: $f(x) = \\begin{cases} x^2 & x \\geq 0 \\\\ -x & x < 0 \\end{cases}$
+- Limits/sums/integrals with proper bounds: $\\lim_{x \\to 0}$, $\\sum_{n=1}^{\\infty}$, $\\int_a^b$
+
 IBDP Math exam technique:
 - AA HL: show all working — a correct answer with no working scores 0 on Paper 2
 - AI HL: technology is expected — show calculator method AND interpret the result
