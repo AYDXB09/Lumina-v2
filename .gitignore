@@ -40,6 +40,9 @@ Thumbs.db
 /Lumina_Slides.pdf
 /Lumina_v2_Security_Architecture.pdf
 
+# Internal planning docs — not for public repo, kept locally only
+docs/internal/
+
 # Editor
 .vscode/*
 !.vscode/extensions.json
