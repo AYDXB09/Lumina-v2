@@ -28,6 +28,7 @@ from cal.routes import router as calendar_router
 from materials.routes import router as materials_router
 from mindmap.routes import router as mindmap_router
 from studyplan.routes import router as studyplan_router
+from quiz.routes import router as quiz_router
 from admin.routes import router as admin_router
 from config import config
 
@@ -89,6 +90,7 @@ app.include_router(calendar_router)
 app.include_router(materials_router)
 app.include_router(mindmap_router)
 app.include_router(studyplan_router)
+app.include_router(quiz_router)
 app.include_router(admin_router)
 
 

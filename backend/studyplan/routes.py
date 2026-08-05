@@ -24,7 +24,9 @@ async def get_study_plan(user=Depends(get_current_student)):
         "user_id", user["sub"]
     ).maybe_single().execute()
 
-    if result.data and result.data.get("plan_data"):
+    # .maybe_single().execute() returns None (not a response with .data=None)
+    # when zero rows match — must guard on `result` itself first.
+    if result and result.data and result.data.get("plan_data"):
         return {
             "plan_data": result.data["plan_data"],
             "generated": False,

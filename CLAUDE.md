@@ -51,10 +51,11 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 - SettingsModal Account tab shows live AI model/provider from `/health` endpoint
 - Comprehensive system prompt: grades, general knowledge, IB EE/IA/TOK, YouTube links, citations, error analysis, deadline awareness, response length calibration
 - **IB IA full reference** injected into system prompt: all DP subjects with word counts, mark weights, criteria names, typical timeline, official IB links — AI never deflects IA questions to Canvas
+- Adaptive quiz generator + persistent mastery tracking: one question at a time (`backend/quiz/`), difficulty tied to `mastery_scores` (EMA-updated per answer, not just React state like v1 — survives refresh), real RAG context via `rag/search.py` (not v1's crude transcript truncation)
+- Economics AP Micro/Macro split (`ap_micro.py`/`ap_macro.py`), custom SVG diagrams (price ceiling/floor, Lorenz curve, standalone AD-AS, tariff), `mhchem` LaTeX chemistry formatting, Math/Physics advanced LaTeX guidance, Biology binomial nomenclature italics
 
 ### Not yet ported from v1
-- Adaptive quiz generator
-- Voice mode (STT/TTS)
+- Voice mode (STT/TTS) — v1 used free browser-native `SpeechRecognition`/`speechSynthesis`, same approach should carry over; not yet built in v2
 
 ---
 
@@ -250,6 +251,9 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `backend/mindmap/routes.py` | /api/mindmap/{course_id} — get, save, regenerate |
 | `backend/studyplan/generator.py` | Cross-course study plan: `_gather_commitments()` (assignments/exams, 30-day lookahead), `_build_skeleton()` (deterministic day placement, not AI), `_fill_content()` (one `provider.complete()` call fills task text + reasoning) |
 | `backend/studyplan/routes.py` | GET /api/studyplan (cached-or-generate), POST /api/studyplan/regenerate |
+| `backend/quiz/generator.py` | `generate_question()` — one AI question per call, difficulty from `mastery_scores`, RAG-grounded; `update_mastery()` — EMA update per answer |
+| `backend/quiz/routes.py` | POST /api/quiz/start, /{id}/answer, /{id}/next, /{id}/finish |
+| `frontend/src/components/QuizView.jsx` | Adaptive quiz UI — one question at a time, mastery bar, hint on wrong answer |
 | `backend/admin/routes.py` | Admin KB upload (shared_materials), list, delete, patch tags |
 | `backend/providers/ai/` | K2, OpenRouter, Anthropic, NVIDIA, Groq, Gemini providers |
 | `backend/providers/ai/__init__.py` | Provider factory — reads `AI_PROVIDER` env var, builds singleton instance |
@@ -268,7 +272,7 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `frontend/src/components/LoginScreen.jsx` | Canvas URL + API key form |
 | `frontend/src/components/Sidebar.jsx` | Course list (no All Courses), sync button, user info |
 | `frontend/src/components/ChatView.jsx` | SSE chat, tool status, history restore, thinking timer, persistent per-message timer, WelcomeScreen quick actions |
-| `frontend/src/components/RightPanel.jsx` | 6-tab panel: Assignments / Notices / Quizzes / Feedback / Mind Map / Plan |
+| `frontend/src/components/RightPanel.jsx` | 7-tab panel: Assignments / Notices / Quizzes / Feedback / Mind Map / Plan / Practice |
 | `frontend/src/components/MindMapView.jsx` | Pure React SVG mind map; drag/zoom/fit; "Ask AI" integration |
 | `frontend/src/components/StudyPlanView.jsx` | Cross-course study plan — day cards, plan-level summary, per-task reason, "Ask AI about this" |
 | `frontend/src/components/SettingsModal.jsx` | 5-tab modal: General / Calendar / Materials / Admin KB / Account |
@@ -313,8 +317,9 @@ SettingsModal shows "Admin KB" tab for matching roles.
   - metadata includes: subjects[], grade_levels[], doc_type, original_filename, size_bytes
 - `chat_sessions` — id, user_id, course_id, title, created_at, updated_at
 - `chat_messages` — id, session_id, role (user/assistant), content, thinking JSONB, created_at
-- `quiz_attempts` — id, user_id, course_id, questions JSONB, answers JSONB, score, difficulty, created_at
+- `quiz_attempts` — id, user_id, course_id, **topic** (added for adaptive quiz — mastery concept key), questions JSONB, answers JSONB, score, difficulty, created_at
 - `mastery_scores` — id, user_id, course_id, concept, score FLOAT, evidence JSONB, updated_at
+  - UNIQUE(user_id, course_id, concept) — added for adaptive quiz's upsert-on-answer pattern
 - `mind_maps` — id, user_id, course_id, graph_data JSONB, updated_at
 - `study_plans` — id, user_id (UNIQUE — one plan per user, cross-course not per-course), plan_data JSONB, generated_at, updated_at
   - plan_data: {summary, days: [{date, tasks: [{course, title, duration_min, reason}]}]}
@@ -459,11 +464,12 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **New Chat:** calls `DELETE /api/chat/sessions/{id}` (fire-and-forget) before clearing local state. Session + messages are deleted from Supabase immediately — navigate-away-and-back cannot restore the cleared conversation. Do NOT use sessionStorage or module-level flags for this — React Strict Mode double-invokes effects and `key`-based remounts reset all refs; only the DB delete is reliable.
 
 ### Frontend — RightPanel
-- 6 tabs: Assignments / Notices / Quizzes / Feedback / Mind Map / Plan
+- 7 tabs: Assignments / Notices / Quizzes / Feedback / Mind Map / Plan / Practice
 - Quizzes: shows `[EXAM]` badge (red pill), quiz_type, time_limit, points, due date
 - Feedback: shows score, grade, submitted date, teacher comments
 - Mind Map tab renders `<MindMapView>` full-height; "Ask AI about this" fires `onAskAI(prompt)` → closes panel + sends to chat
 - Plan tab renders `<StudyPlanView>` full-height; deliberately ignores the `course` prop (cross-course, not per-course)
+- Practice tab renders `<QuizView course={course}>` full-height — per-course (unlike Plan), needs `course.id` to start a quiz. Distinct tab id (`practicequiz`) from the existing Canvas-sourced `quizzes` tab — they're unrelated features that happen to share the word "quiz"
 - All non-mindmap/non-studyplan tab APIs called in parallel on course switch with `.catch()` fallback
 
 ### Frontend — MindMapView
@@ -510,6 +516,8 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **Gemini `extra_body={"thinking": ...}` is REMOVED, do not re-add it (fixed 2026-08-05):** This used to disable thinking tokens on `gemini-2.5-flash` variants, but Google's OpenAI-compatible endpoint now rejects the field outright — every `stream()`/`complete()` call failed with `400 Invalid JSON payload received. Unknown name "thinking": Cannot find field`. This was a **live production outage** (chat was fully broken, both locally and on Railway, since it's a runtime API call not a library version issue) discovered while testing the study plan feature, which was the first thing to ever exercise `provider.complete()` — `stream()` had the identical bug but nothing had surfaced it recently. Verified fix: removing the `extra_body` kwarg entirely from both methods in `providers/ai/gemini.py` restores working calls. If thinking-token suppression is needed again for `gemini-2.5-flash` (non-lite) in the future, check Google's current OpenAI-compat docs for the correct field shape first — don't blindly restore the old one.
 - **Local Gemini API key:** `backend/.env` `GEMINI_API_KEY` must start with `AQ.` (not `yAQ.` — the `y` prefix makes it invalid). If all chat responses are blank and logs show Gemini 500 errors, check the key. Valid keys return a 200 for a simple curl test against `v1beta/models/gemini-2.5-flash-lite:generateContent`.
 - **IB IA content in subject modules is large:** Each subject module now contains full IA criteria tables (~1,000 tokens each). These are lazy-loaded per course so they don't bloat unrelated requests. Do NOT move IA criteria back into the base `prompt.py` — it pushed `prompt_chars` to 28,000+ and caused Gemini 500s. Base prompt should stay under ~12,000 chars.
+- **`supabase-py` `.maybe_single().execute()` returns `None` directly on zero rows, not a response object with `.data=None`.** Guard on `if result and result.data`, not just `if result.data` — the latter throws `AttributeError` on the exact cold-start case (first-time user, no row yet) the query exists to handle. This bug existed silently in `chat/tools.py` (pre-existing) and was introduced fresh in `studyplan/routes.py` and `quiz/routes.py` before being caught and fixed (2026-08-05) — check any new `.maybe_single()` call site for this pattern.
+- **RAG match_* functions need `extensions` in their `search_path`, not just `public, pg_temp`:** After moving the `vector` extension to the `extensions` schema (security cleanup) AND pinning `search_path` on `match_index_chunks`/`match_student_materials`/`match_shared_materials` to `public, pg_temp` (also security cleanup) in the same session, RAG search broke silently — `search()` catches the resulting `operator does not exist: extensions.vector <=> extensions.vector` exception and returns `[]`, so nothing ever surfaced as a visible error. Fixed by adding `extensions` back to those three functions' `search_path` (2026-08-05). If pinning `search_path` on any function that uses the `vector` type or its operators, always include `extensions` in the path.
 
 ---
 
@@ -610,8 +618,7 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 - [ ] Ketcher 2D molecule drawing for organic chemistry — **attempted, reverted.** `ketcher-standalone.zip` from the official GitHub release is a JS library bundle (`ketcher-react`), not a ready static HTML app — no `index.html`, no README. No confirmed public hosted demo either (checked `lifescience.opensource.epam.com/ketcher/` — that's documentation, not the live editor). Building this properly requires writing a real init wrapper against Ketcher's React API, more work than the self-host-and-iframe pattern used for every other widget. Needs its own scoped session.
 
 ### Phase 3 — Full student experience
-- [ ] Adaptive quiz generator (port from v1)
-- [ ] Mastery tracking — `mastery_scores` table exists, nothing uses it yet
+- [x] Adaptive quiz generator + mastery tracking — `backend/quiz/`, one question per AI call (provider-agnostic, same pattern as study plan), difficulty tied to `mastery_scores` (EMA update per answer), real RAG context. Frontend: `QuizView.jsx`, new "Practice" tab in RightPanel (distinct from the existing Canvas-sourced "Quizzes" tab). Verified end-to-end with synthetic data: mastery correctly moves 0.5→0.65 on a correct answer, drops to 0.22 (→ beginner difficulty) after 3 wrong answers; RAG-grounded questions confirmed against seeded course content.
 - [ ] Step-by-step Socratic worked examples (problem-solving mode)
 - [ ] Voice mode (port from v1)
 - [ ] Parent consent flow + Resend email

@@ -21,6 +21,7 @@ import { useIsMobile } from "../hooks/useIsMobile.js";
 import { fetchAssignments, fetchAnnouncements, fetchQuizzes, fetchFeedback } from "../api.js";
 import MindMapView from "./MindMapView.jsx";
 import StudyPlanView from "./StudyPlanView.jsx";
+import QuizView from "./QuizView.jsx";
 
 // ---- Helpers ----
 function classifyAssignment(due_at) {
@@ -375,6 +376,7 @@ export default function RightPanel({ course, onClose, onAskAI }) {
     { id: "feedback",      label: "Feedback",      count: feedback.length },
     { id: "mindmap",       label: "Map",           count: 0 },
     { id: "studyplan",     label: "Plan",          count: 0 },
+    { id: "practicequiz",  label: "Practice",      count: 0 },
   ];
 
   return (
@@ -402,8 +404,8 @@ export default function RightPanel({ course, onClose, onAskAI }) {
         ))}
       </div>
 
-      {/* Hint — hidden for mind map / study plan tabs */}
-      {tab !== "mindmap" && tab !== "studyplan" && <div style={s.hint}>Tap any card to see full details</div>}
+      {/* Hint — hidden for mind map / study plan / practice quiz tabs */}
+      {tab !== "mindmap" && tab !== "studyplan" && tab !== "practicequiz" && <div style={s.hint}>Tap any card to see full details</div>}
 
       {/* Body */}
       {tab === "mindmap" ? (
@@ -413,6 +415,10 @@ export default function RightPanel({ course, onClose, onAskAI }) {
       ) : tab === "studyplan" ? (
         <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
           <StudyPlanView onAskAI={onAskAI} />
+        </div>
+      ) : tab === "practicequiz" ? (
+        <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+          <QuizView course={course} />
         </div>
       ) : (
         <div style={s.body}>

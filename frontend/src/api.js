@@ -136,6 +136,42 @@ export async function regenerateStudyPlan(authFetch) {
 }
 
 // ------------------------------------------------------------------ //
+// Adaptive quiz                                                       //
+// ------------------------------------------------------------------ //
+
+export async function startQuiz(authFetch, courseId, topic) {
+  const res = await authFetch(`${BASE}/api/quiz/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ course_id: courseId, topic }),
+  });
+  if (!res.ok) throw new Error("Failed to start quiz");
+  return res.json();
+}
+
+export async function answerQuiz(authFetch, attemptId, selectedIndex) {
+  const res = await authFetch(`${BASE}/api/quiz/${attemptId}/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ selected_index: selectedIndex }),
+  });
+  if (!res.ok) throw new Error("Failed to submit answer");
+  return res.json();
+}
+
+export async function nextQuizQuestion(authFetch, attemptId) {
+  const res = await authFetch(`${BASE}/api/quiz/${attemptId}/next`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to load next question");
+  return res.json();
+}
+
+export async function finishQuiz(authFetch, attemptId) {
+  const res = await authFetch(`${BASE}/api/quiz/${attemptId}/finish`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to finish quiz");
+  return res.json();
+}
+
+// ------------------------------------------------------------------ //
 // Admin knowledge base                                                //
 // ------------------------------------------------------------------ //
 
