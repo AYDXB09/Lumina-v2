@@ -53,9 +53,10 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 - **IB IA full reference** injected into system prompt: all DP subjects with word counts, mark weights, criteria names, typical timeline, official IB links — AI never deflects IA questions to Canvas
 - Adaptive quiz generator + persistent mastery tracking: one question at a time (`backend/quiz/`), difficulty tied to `mastery_scores` (EMA-updated per answer, not just React state like v1 — survives refresh), real RAG context via `rag/search.py` (not v1's crude transcript truncation)
 - Economics AP Micro/Macro split (`ap_micro.py`/`ap_macro.py`), custom SVG diagrams (price ceiling/floor, Lorenz curve, standalone AD-AS, tariff), `mhchem` LaTeX chemistry formatting, Math/Physics advanced LaTeX guidance, Biology binomial nomenclature italics
+- Voice mode — mic dictation (`toggleRecording()` in ChatView.jsx) + per-message read-aloud (`useSpeech.js`), both free/browser-native (`SpeechRecognition`/`speechSynthesis`), same approach v1 used. **Scoped down from v1's full hands-free "Voice Mode" loop** (continuous STT→AI→TTS→STT auto-cycle with a dedicated overlay) — v2 only ports the two reusable primitives (dictate-into-input, read-message-aloud), not the auto-conversation loop. Revisit if a fully hands-free mode is wanted later.
 
 ### Not yet ported from v1
-- Voice mode (STT/TTS) — v1 used free browser-native `SpeechRecognition`/`speechSynthesis`, same approach should carry over; not yet built in v2
+- (nothing outstanding — voice mode primitives now ported, see above)
 
 ---
 
@@ -254,6 +255,8 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `backend/quiz/generator.py` | `generate_question()` — one AI question per call, difficulty from `mastery_scores`, RAG-grounded; `update_mastery()` — EMA update per answer |
 | `backend/quiz/routes.py` | POST /api/quiz/start, /{id}/answer, /{id}/next, /{id}/finish |
 | `frontend/src/components/QuizView.jsx` | Adaptive quiz UI — one question at a time, mastery bar, hint on wrong answer |
+| `frontend/src/hooks/useSpeech.js` | Module-singleton TTS state shared across all `ChatMessage` instances — one message reads aloud at a time, sentence-by-sentence |
+| `frontend/src/utils/stripForSpeech.js` | Strips Markdown/LaTeX/widget-marker syntax before TTS reads a message aloud |
 | `backend/admin/routes.py` | Admin KB upload (shared_materials), list, delete, patch tags |
 | `backend/providers/ai/` | K2, OpenRouter, Anthropic, NVIDIA, Groq, Gemini providers |
 | `backend/providers/ai/__init__.py` | Provider factory — reads `AI_PROVIDER` env var, builds singleton instance |
@@ -462,6 +465,8 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **WelcomeScreen quick actions:** 4 course-specific buttons + 2 global; use `handleSend(overrideText)` pattern
 - `registerSend` prop: ChatView exposes `fireQuickAction` fn to App.jsx via callback; App stores in `chatSendRef`, passes to RightPanel as `onAskAI`
 - **New Chat:** calls `DELETE /api/chat/sessions/{id}` (fire-and-forget) before clearing local state. Session + messages are deleted from Supabase immediately — navigate-away-and-back cannot restore the cleared conversation. Do NOT use sessionStorage or module-level flags for this — React Strict Mode double-invokes effects and `key`-based remounts reset all refs; only the DB delete is reliable.
+- **Voice — mic dictation:** `toggleRecording()` uses `window.SpeechRecognition`/`webkitSpeechRecognition`, fills `input` state live (interim + final results), no auto-send — ported from v1's `toggleRecording()`, not v1's full auto-send-after-2s-silence hands-free loop. Browser support is inconsistent on Safari/iOS; silently no-ops with an alert rather than erroring.
+- **Voice — read-aloud:** each `ChatMessage` gets a speaker button (`useSpeech()` hook) that reads the message aloud sentence-by-sentence via `speechSynthesis`, stripped of Markdown/LaTeX/widget markers first (`stripForSpeech.js`). State is a **module-level singleton**, not per-component — `window.speechSynthesis` is one global instance, so if state were per-`ChatMessage`, starting message B's playback wouldn't reset message A's "speaking" icon even though A's audio does actually stop. `stopSpeaking()` is called on course switch, New Chat, and component unmount so nothing keeps reading after the message it belongs to is gone.
 
 ### Frontend — RightPanel
 - 7 tabs: Assignments / Notices / Quizzes / Feedback / Mind Map / Plan / Practice
@@ -620,7 +625,7 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 ### Phase 3 — Full student experience
 - [x] Adaptive quiz generator + mastery tracking — `backend/quiz/`, one question per AI call (provider-agnostic, same pattern as study plan), difficulty tied to `mastery_scores` (EMA update per answer), real RAG context. Frontend: `QuizView.jsx`, new "Practice" tab in RightPanel (distinct from the existing Canvas-sourced "Quizzes" tab). Verified end-to-end with synthetic data: mastery correctly moves 0.5→0.65 on a correct answer, drops to 0.22 (→ beginner difficulty) after 3 wrong answers; RAG-grounded questions confirmed against seeded course content.
 - [ ] Step-by-step Socratic worked examples (problem-solving mode)
-- [ ] Voice mode (port from v1)
+- [x] Voice mode — mic dictation + read-aloud (see "Not yet ported from v1" note above for scoping vs. v1's full hands-free loop)
 - [ ] Parent consent flow + Resend email
 - [ ] Sign DPA with Dwight
 

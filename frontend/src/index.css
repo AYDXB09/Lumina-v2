@@ -210,6 +210,22 @@ input, textarea { font-family: inherit; }
   color: var(--color-primary);
 }
 
+.msg-speak-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 6px;
+  padding: 4px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.msg-speak-btn:hover { background: var(--color-surface-2); color: var(--color-text-muted); }
+.msg-speak-btn.speaking { color: var(--color-primary); background: var(--color-surface-2); }
+
 /* ============================================================
    MARKDOWN BODY  (AI messages only)
    ============================================================ */

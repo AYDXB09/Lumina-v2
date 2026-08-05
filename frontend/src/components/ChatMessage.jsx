@@ -24,6 +24,23 @@ import LuminaLogo from "./LuminaLogo.jsx";
 import InteractiveWidget from "./InteractiveWidget.jsx";
 import EconSVGWidget from "./EconSVGWidget.jsx";
 import { useSettings } from "../contexts/SettingsContext.jsx";
+import { useSpeech } from "../hooks/useSpeech.js";
+
+// ---- Speak button icons ----
+const SpeakerIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <path d="M15.54 8.46a5 5 0 010 7.07" />
+    <path d="M19.07 4.93a10 10 0 010 14.14" />
+  </svg>
+);
+const SpeakerStopIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <line x1="23" y1="9" x2="17" y2="15" />
+    <line x1="17" y1="9" x2="23" y2="15" />
+  </svg>
+);
 
 // ---- Configure marked ----
 marked.setOptions({ breaks: true, gfm: true });
@@ -119,9 +136,11 @@ function parseSegments(content) {
 }
 
 // ---- Component ----
-export default function ChatMessage({ role, content, isStreaming = false, images = null }) {
+export default function ChatMessage({ id, role, content, isStreaming = false, images = null }) {
   const isUser = role === "user";
   const { settings } = useSettings();
+  const { speakingId, speak, supported: speechSupported } = useSpeech();
+  const isSpeakingThis = speakingId === id;
 
   const segments = useMemo(() => {
     if (isUser) return null;
@@ -185,6 +204,16 @@ export default function ChatMessage({ role, content, isStreaming = false, images
               )
             )}
             {isStreaming && <span className="msg-cursor">▊</span>}
+            {!isStreaming && content && speechSupported && (
+              <button
+                className={`msg-speak-btn ${isSpeakingThis ? "speaking" : ""}`}
+                onClick={() => speak(id, content)}
+                title={isSpeakingThis ? "Stop reading aloud" : "Read aloud"}
+                aria-label={isSpeakingThis ? "Stop reading aloud" : "Read aloud"}
+              >
+                {isSpeakingThis ? <SpeakerStopIcon /> : <SpeakerIcon />}
+              </button>
+            )}
           </>
         )}
       </div>

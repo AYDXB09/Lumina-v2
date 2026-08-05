@@ -16,6 +16,7 @@ import { useAuth } from "../contexts/AuthContext.jsx";
 import { useIsMobile } from "../hooks/useIsMobile.js";
 import { streamChat, fetchSessions, fetchMessages, deleteSession } from "../api.js";
 import ChatMessage from "./ChatMessage.jsx";
+import { useSpeech } from "../hooks/useSpeech.js";
 
 
 // ---- Icons ----
@@ -59,6 +60,15 @@ const StopIcon = () => (
   </svg>
 );
 
+const MicIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+    <path d="M19 10v2a7 7 0 01-14 0v-2" />
+    <line x1="12" y1="19" x2="12" y2="23" />
+    <line x1="8" y1="23" x2="16" y2="23" />
+  </svg>
+);
+
 const PlusIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
     <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
@@ -78,6 +88,7 @@ export default function ChatView({
   registerSend = null,   // fn(sendFn) — lets parent components trigger a send
 }) {
   const { authFetch } = useAuth();
+  const { stop: stopSpeaking } = useSpeech();
   const isMobile = useIsMobile();
   const [messages, setMessages]             = useState([]);
   const [input, setInput]                   = useState("");
@@ -89,6 +100,7 @@ export default function ChatView({
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [lastResponseMs, setLastResponseMs] = useState(null); // ms for last response
   const [elapsedMs, setElapsedMs]           = useState(null); // live counter while loading
+  const [isRecording, setIsRecording]       = useState(false); // mic dictation active
 
   const bottomRef    = useRef(null);
   const inputRef     = useRef(null);
@@ -100,6 +112,7 @@ export default function ChatView({
   const timerRef      = useRef(null);  // setInterval handle
   const messagesRef   = useRef([]);    // always-current messages (avoids stale closure in registerSend)
   const abortRef      = useRef(null);  // AbortController.abort fn — set during streaming
+  const recognitionRef = useRef(null); // active SpeechRecognition instance, if any
 
   // Keep messagesRef in sync so stale closures (registerSend) always see current messages
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -137,6 +150,47 @@ export default function ChatView({
     if (newAtts.length > 0) setAttachments(prev => [...prev, ...newAtts]);
   }, []);
 
+  // ---- Voice dictation — mic button fills the input, no auto-send ----
+  // Ported from v1's toggleRecording() (App.jsx). Web Speech API is browser-native
+  // and free (no backend/API key needed), but support is inconsistent on Safari/iOS —
+  // this silently no-ops there rather than erroring, since there's no fallback to offer.
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      alert("Voice dictation isn't supported in this browser — try Chrome.");
+      return;
+    }
+    const r = new SR();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = "en-US";
+    let finalText = "";
+    r.onresult = (ev) => {
+      let interim = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) finalText += ev.results[i][0].transcript + " ";
+        else interim += ev.results[i][0].transcript;
+      }
+      setInput(finalText + interim);
+    };
+    r.onerror = () => setIsRecording(false);
+    r.onend = () => { setIsRecording(false); setInput(p => p.trim()); };
+    recognitionRef.current = r;
+    r.start();
+    setIsRecording(true);
+  }, [isRecording]);
+
+  // Stop dictation / any in-progress read-aloud if the component unmounts
+  useEffect(() => () => {
+    recognitionRef.current?.stop();
+    stopSpeaking();
+  }, []);
+
   // Close attach menu on outside click
   useEffect(() => {
     function handleClick(e) {
@@ -151,6 +205,7 @@ export default function ChatView({
   // Load last session history when course changes
   useEffect(() => {
     let cancelled = false;
+    stopSpeaking(); // don't let a message from the previous course keep reading aloud
     sessionIdRef.current = session?.id ?? null;
     setMessages([]);
     setHistoryLoading(true);
@@ -196,11 +251,12 @@ export default function ChatView({
     const deletedId = sessionIdRef.current;
     sessionIdRef.current = null;
     if (deletedId) deleteSession(authFetch, deletedId).catch(() => {});
+    stopSpeaking(); // don't leave a now-cleared message reading aloud
     setMessages([]);
     setInput("");
     setAttachments([]);
     inputRef.current?.focus();
-  }, [loading, messages.length, authFetch]);
+  }, [loading, messages.length, authFetch, stopSpeaking]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -438,7 +494,7 @@ export default function ChatView({
         <div style={s.messageInner}>
           {messages.map((m, i) => (
             <React.Fragment key={i}>
-              <ChatMessage role={m.role} content={m.content} images={m._images} />
+              <ChatMessage id={i} role={m.role} content={m.content} images={m._images} />
               {m.role === "assistant" && m._ms && (
                 <div style={s.timerBadge}>
                   ⏱ {m._ms >= 1000 ? `${(m._ms / 1000).toFixed(1)}s` : `${m._ms}ms`}
@@ -535,6 +591,16 @@ export default function ChatView({
               )}
             </div>
 
+            {/* Mic dictation button */}
+            <button
+              style={{ ...s.inputActionBtn, ...(isRecording ? s.inputActionBtnRecording : {}) }}
+              onClick={toggleRecording}
+              title={isRecording ? "Stop dictation" : "Dictate with your voice"}
+              disabled={loading}
+            >
+              <MicIcon />
+            </button>
+
             {/* Textarea */}
             <textarea
               ref={inputRef}
@@ -543,7 +609,7 @@ export default function ChatView({
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={PLACEHOLDER}
+              placeholder={isRecording ? "Listening…" : PLACEHOLDER}
               rows={1}
               disabled={loading}
             />
@@ -871,6 +937,10 @@ const s = {
     justifyContent: "center",
     transition: "background var(--transition)",
     flexShrink: 0,
+  },
+  inputActionBtnRecording: {
+    background: "var(--pill-red-text)",
+    animation: "pulse 1.4s ease-in-out infinite",
   },
   textarea: {
     flex: 1,
