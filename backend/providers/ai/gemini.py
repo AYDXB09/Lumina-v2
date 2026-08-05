@@ -46,7 +46,6 @@ class GeminiProvider(AIProvider):
                 temperature=temperature,
                 max_tokens=max_tokens,
                 stream=True,
-                extra_body={"thinking": {"type": "disabled"}},
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content
@@ -74,6 +73,5 @@ class GeminiProvider(AIProvider):
             temperature=temperature,
             max_tokens=max_tokens,
             stream=False,
-            extra_body={"thinking": {"type": "disabled"}},
         )
         return response.choices[0].message.content or ""

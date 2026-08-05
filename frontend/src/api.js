@@ -120,6 +120,22 @@ export async function regenerateMindMap(authFetch, courseId) {
 }
 
 // ------------------------------------------------------------------ //
+// Study plan (cross-course — not scoped to a single course)          //
+// ------------------------------------------------------------------ //
+
+export async function fetchStudyPlan(authFetch) {
+  const res = await authFetch(`${BASE}/api/studyplan`);
+  if (!res.ok) throw new Error("Failed to fetch study plan");
+  return res.json();
+}
+
+export async function regenerateStudyPlan(authFetch) {
+  const res = await authFetch(`${BASE}/api/studyplan/regenerate`, { method: "POST" });
+  if (!res.ok) throw new Error("Regeneration failed");
+  return res.json();
+}
+
+// ------------------------------------------------------------------ //
 // Admin knowledge base                                                //
 // ------------------------------------------------------------------ //
 

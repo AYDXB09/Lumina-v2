@@ -36,7 +36,8 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 - AI provider + model configured via Railway env vars (`AI_PROVIDER`, `GEMINI_MODEL`, etc.) — change in Railway and restart
 - React frontend: Sidebar (course list, no "All Courses") + ChatView (SSE streaming + thinking timer + persistent per-message timer + working stop button) + LoginScreen
 - iCal calendar integration: personal calendars + Canvas auto-calendar, JSONB cache, injected into AI context
-- RightPanel: 5 tabs — Assignments / Notices / Quizzes / Feedback / Mind Map
+- RightPanel: 6 tabs — Assignments / Notices / Quizzes / Feedback / Mind Map / Plan
+- Study plan generation: cross-course day-by-day plan from upcoming assignments/exams + calendar; deterministic scheduling (backend), AI fills in task text + plain-language reasoning per task (provider-agnostic, works with any of the 6 AI providers)
 - SettingsModal: 5 tabs — General / Calendar / Materials / Admin KB (teachers only) / Account
 - Auto-index Canvas content on first student login (background task)
 - WelcomeScreen quick-action buttons in ChatView (course-specific + global)
@@ -247,6 +248,8 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `backend/chat/routes.py` | POST /api/chat/stream (SSE), sessions CRUD; DELETE /api/chat/sessions/{id} |
 | `backend/materials/routes.py` | Multi-file upload, filename tag extraction, student RAG indexing |
 | `backend/mindmap/routes.py` | /api/mindmap/{course_id} — get, save, regenerate |
+| `backend/studyplan/generator.py` | Cross-course study plan: `_gather_commitments()` (assignments/exams, 30-day lookahead), `_build_skeleton()` (deterministic day placement, not AI), `_fill_content()` (one `provider.complete()` call fills task text + reasoning) |
+| `backend/studyplan/routes.py` | GET /api/studyplan (cached-or-generate), POST /api/studyplan/regenerate |
 | `backend/admin/routes.py` | Admin KB upload (shared_materials), list, delete, patch tags |
 | `backend/providers/ai/` | K2, OpenRouter, Anthropic, NVIDIA, Groq, Gemini providers |
 | `backend/providers/ai/__init__.py` | Provider factory — reads `AI_PROVIDER` env var, builds singleton instance |
@@ -262,10 +265,11 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `frontend/src/components/LoginScreen.jsx` | Canvas URL + API key form |
 | `frontend/src/components/Sidebar.jsx` | Course list (no All Courses), sync button, user info |
 | `frontend/src/components/ChatView.jsx` | SSE chat, tool status, history restore, thinking timer, persistent per-message timer, WelcomeScreen quick actions |
-| `frontend/src/components/RightPanel.jsx` | 5-tab panel: Assignments / Notices / Quizzes / Feedback / Mind Map |
+| `frontend/src/components/RightPanel.jsx` | 6-tab panel: Assignments / Notices / Quizzes / Feedback / Mind Map / Plan |
 | `frontend/src/components/MindMapView.jsx` | Pure React SVG mind map; drag/zoom/fit; "Ask AI" integration |
+| `frontend/src/components/StudyPlanView.jsx` | Cross-course study plan — day cards, plan-level summary, per-task reason, "Ask AI about this" |
 | `frontend/src/components/SettingsModal.jsx` | 5-tab modal: General / Calendar / Materials / Admin KB / Account |
-| `frontend/src/api.js` | streamChat(), fetchCourses(), uploadMaterial() (multi-file), fetchMindMap(), fetchAdminMaterials(), deleteSession(), etc. |
+| `frontend/src/api.js` | streamChat(), fetchCourses(), uploadMaterial() (multi-file), fetchMindMap(), fetchStudyPlan(), regenerateStudyPlan(), fetchAdminMaterials(), deleteSession(), etc. |
 | `.mcp.json` | Supabase MCP config |
 
 ---
@@ -309,6 +313,8 @@ SettingsModal shows "Admin KB" tab for matching roles.
 - `quiz_attempts` — id, user_id, course_id, questions JSONB, answers JSONB, score, difficulty, created_at
 - `mastery_scores` — id, user_id, course_id, concept, score FLOAT, evidence JSONB, updated_at
 - `mind_maps` — id, user_id, course_id, graph_data JSONB, updated_at
+- `study_plans` — id, user_id (UNIQUE — one plan per user, cross-course not per-course), plan_data JSONB, generated_at, updated_at
+  - plan_data: {summary, days: [{date, tasks: [{course, title, duration_min, reason}]}]}
 
 ### Admin Knowledge Base
 - `shared_materials` — id, school_id, uploaded_by, filename, content, embedding vector(768),
@@ -450,11 +456,12 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **New Chat:** calls `DELETE /api/chat/sessions/{id}` (fire-and-forget) before clearing local state. Session + messages are deleted from Supabase immediately — navigate-away-and-back cannot restore the cleared conversation. Do NOT use sessionStorage or module-level flags for this — React Strict Mode double-invokes effects and `key`-based remounts reset all refs; only the DB delete is reliable.
 
 ### Frontend — RightPanel
-- 5 tabs: Assignments / Notices / Quizzes / Feedback / Mind Map
+- 6 tabs: Assignments / Notices / Quizzes / Feedback / Mind Map / Plan
 - Quizzes: shows `[EXAM]` badge (red pill), quiz_type, time_limit, points, due date
 - Feedback: shows score, grade, submitted date, teacher comments
 - Mind Map tab renders `<MindMapView>` full-height; "Ask AI about this" fires `onAskAI(prompt)` → closes panel + sends to chat
-- All non-mindmap tab APIs called in parallel on course switch with `.catch()` fallback
+- Plan tab renders `<StudyPlanView>` full-height; deliberately ignores the `course` prop (cross-course, not per-course)
+- All non-mindmap/non-studyplan tab APIs called in parallel on course switch with `.catch()` fallback
 
 ### Frontend — MindMapView
 - Pure React SVG — no d3 dependency
@@ -462,6 +469,15 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - `buildEdgePath(src, tgt)`: cubic Bezier paths
 - Viewport: drag (pointerdown/pointermove/pointerup), wheel zoom, fit-to-screen default
 - Fetches from `/api/mindmap/{course_id}`, regenerate button, selected-node detail panel at bottom
+
+### Study Plan Generation (backend/studyplan/)
+- **Cross-course by design** — assignments/exams span multiple classes, so a plan only prioritizes correctly if it sees all of them at once, not just the selected course
+- **Deterministic scheduling, AI-filled content** — day-by-day slot placement (`_build_skeleton()`) is plain Python, not an AI decision, so the schedule is always logically sound (every commitment gets at least one prep day, no day overloaded past `MAX_TASKS_PER_DAY`, no double-booking). The AI's job is narrower: fill in the actual task text + a plain-language `reason` per task, plus a plan-level `summary`
+- **Provider-agnostic** — uses `provider.complete()` (non-streaming, implemented by all 6 providers) rather than tool-calling, so it works identically regardless of `AI_PROVIDER` — including models with tool-calling disabled (Llama/DeepSeek)
+- **JSON-in-response-text, not structured tool output** — prompts for plain JSON, strips markdown fences, parses; retries once with a stricter "ONLY JSON" prompt on parse failure; falls back to skeleton-only generic task text if both attempts fail, so the feature degrades gracefully instead of erroring out
+- **Weighting:** exam/IA > quiz > assignment (`TYPE_WEIGHT` in `generator.py`) — controls how many prep sessions a commitment gets, not just when
+- **Storage:** one row per user in `study_plans` (upsert on `user_id`), regenerated manually via button — not on every login, since assignments/calendar don't change minute-to-minute and regeneration costs an AI call
+- **Not yet done:** no live end-to-end test with real synced student data yet — structure is verified (backend imports resolve, frontend builds clean) but AI output quality on real assignments hasn't been checked
 
 ### Frontend — SettingsModal
 - **5 tabs:** General / Calendar / Materials / Admin KB (teachers only) / Account
@@ -488,7 +504,22 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **global_config table:** `ai_config` has a school_id FK constraint — cannot use NULL. Use `global_config` (key/value, no FK) for platform-wide settings.
 - **Stop button:** Must call `abortRef.current?.()` on click when `loading=true`. Button disabled state must NOT include `|| loading` — that makes it unclickable when streaming.
 - **Proactive RAG is async:** `rag_search()` is async — call with `await`. `embed()` and `embed_one()` are also async (Gemini API calls) — never call them without `await`.
-- **Gemini thinking tokens:** `gemini-2.5-flash` variants have built-in thinking. Disabled via `extra_body={"thinking": {"type": "disabled"}}` in `providers/ai/gemini.py` — do not remove this.
+- **Gemini `extra_body={"thinking": ...}` is REMOVED, do not re-add it (fixed 2026-08-05):** This used to disable thinking tokens on `gemini-2.5-flash` variants, but Google's OpenAI-compatible endpoint now rejects the field outright — every `stream()`/`complete()` call failed with `400 Invalid JSON payload received. Unknown name "thinking": Cannot find field`. This was a **live production outage** (chat was fully broken, both locally and on Railway, since it's a runtime API call not a library version issue) discovered while testing the study plan feature, which was the first thing to ever exercise `provider.complete()` — `stream()` had the identical bug but nothing had surfaced it recently. Verified fix: removing the `extra_body` kwarg entirely from both methods in `providers/ai/gemini.py` restores working calls. If thinking-token suppression is needed again for `gemini-2.5-flash` (non-lite) in the future, check Google's current OpenAI-compat docs for the correct field shape first — don't blindly restore the old one.
+- **Local Gemini API key:** `backend/.env` `GEMINI_API_KEY` must start with `AQ.` (not `yAQ.` — the `y` prefix makes it invalid). If all chat responses are blank and logs show Gemini 500 errors, check the key. Valid keys return a 200 for a simple curl test against `v1beta/models/gemini-2.5-flash-lite:generateContent`.
+- **IB IA content in subject modules is large:** Each subject module now contains full IA criteria tables (~1,000 tokens each). These are lazy-loaded per course so they don't bloat unrelated requests. Do NOT move IA criteria back into the base `prompt.py` — it pushed `prompt_chars` to 28,000+ and caused Gemini 500s. Base prompt should stay under ~12,000 chars.
+
+---
+
+## Database Security — RLS Posture
+
+**Current state (verified 2026-08-05):** all 22 tables in `public` have RLS **enabled with zero policies** — effectively deny-all for any request using the anon/publishable key. This is intentional, not an oversight: the backend (`backend/`) is the only thing that ever talks to Supabase, always via `SUPABASE_SERVICE_KEY` (service-role, bypasses RLS entirely). Confirmed by auditing the frontend:
+- `@supabase/supabase-js` is not in `frontend/package.json` — no Supabase client library exists client-side
+- `grep -rl "supabase" frontend/src/` returns nothing
+- Every network call in `frontend/src/api.js` and `frontend/src/contexts/AuthContext.jsx` goes through `fetch`/`authFetch` against the FastAPI backend (`API_BASE`), never Supabase directly
+
+**Open design decision (not yet made):** keep this backend-only/deny-all posture long-term, or eventually write real per-user RLS policies (e.g. `chat_sessions`, `student_materials`, `mind_maps` scoped to `auth.uid()`) so a future direct-from-frontend Supabase client integration would be possible without going through the backend first. No urgency — current architecture is safe as-is. Revisit only if there's ever a reason to let the frontend query Supabase directly (e.g. Supabase Realtime subscriptions, reducing backend round-trips).
+
+Also cleaned up in this pass (see `supabase-lumina` MCP, 2026-08-05): dropped 2 duplicate embedding indexes, added 6 missing FK-covering indexes, pinned `search_path` on 6 `SECURITY DEFINER`/trigger functions to prevent search_path hijacking, revoked public `EXECUTE` on the `rls_auto_enable()` event-trigger function, and moved the `vector` extension out of `public` into a dedicated `extensions` schema.
 
 ---
 
@@ -557,7 +588,7 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 - [x] IB IA full reference in system prompt — all subjects, word counts, mark weights, criteria, timeline, official links
 - [x] IB IA criteria in every subject module — Math (A–E, 20 marks), Physics/Chem/Bio (A–E, 24 marks), Economics (commentary criteria + HL research project), English (IO criteria), History, Psychology, Languages (IO), Global Politics (Engagement Activity)
 - [x] Global Politics subject module — new (was missing); exam technique + key concepts + IA
-- [ ] Study plan generation
+- [x] Study plan generation — cross-course, deterministic scheduling + AI-filled task content/reasoning, provider-agnostic (`backend/studyplan/`); not yet tested end-to-end against real synced student data
 
 ### Phase 2 — Subject Modules (foundation built, expand content)
 **Economics (IB + AP):**
