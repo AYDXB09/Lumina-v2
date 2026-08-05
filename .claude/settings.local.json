@@ -25,7 +25,29 @@
       "Bash(git push *)",
       "Bash(curl -s -X POST https://api.k2think.ai/v1/chat/completions -H 'Authorization: Bearer IFM-WkjDZvTiR3M7dwqV' -H 'Content-Type: application/json' -d '{\"model\":\"MBZUAI-IFM/K2-Think-v2\",\"messages\":[{\"role\":\"user\",\"content\":\"say hi\"}],\"max_tokens\":50,\"stream\":false}')",
       "Bash(curl -s -X POST https://api.k2think.ai/v1/chat/completions -H 'Authorization: Bearer IFM-WkjDZvTiR3M7dwqV' -H 'Content-Type: application/json' -d '{\"model\":\"MBZUAI-IFM/K2-Think-v2\",\"messages\":[{\"role\":\"user\",\"content\":\"say hi\"}],\"max_tokens\":200,\"stream\":true}')",
-      "Bash(tail -50 /tmp/lumina_backend.log)"
+      "Bash(tail -50 /tmp/lumina_backend.log)",
+      "Bash(pkill -f \"python3 main.py\")",
+      "Bash(pkill -f \"vite\")",
+      "Read(//tmp/**)",
+      "Bash(pkill -f \"uvicorn\")",
+      "Bash(pkill -f \"python3 main.py\" 2>/dev/null; pkill -f \"uvicorn\" 2>/dev/null; sleep 1 && ./dev.sh >> /tmp/lumina-dev.log 2>&1 & *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(npm list *)",
+      "Bash(node build_presentation.mjs)",
+      "Bash(brew list *)",
+      "Bash(python3 -m pip install \"markitdown[pptx]\" -q)",
+      "Bash(python3 -m markitdown /Users/ny/Downloads/CursorProjects/Lumina-v2/Lumina_K2ThinkV2_Access_Request.pptx)",
+      "mcp__Claude_in_Chrome__get_page_text",
+      "mcp__Claude_in_Chrome__find",
+      "mcp__Claude_in_Chrome__read_page",
+      "Bash(mkdir -p ~/Downloads/IRO_Practice_Exams)",
+      "mcp__Claude_in_Chrome__navigate",
+      "Bash(curl -sIL \"https://drive.usercontent.google.com/download?id=1xTXiG1CWnyW0CCbNRjO5b4e33bHgP88w&export=download&authuser=0\")",
+      "Bash(curl -v \"https://drive.usercontent.google.com/download?id=1xTXiG1CWnyW0CCbNRjO5b4e33bHgP88w&export=download&authuser=0\" -o /tmp/test_semi.pdf)",
+      "mcp__a534df39-8ac9-41cb-8df8-856747bf85d2__get_project",
+      "mcp__a534df39-8ac9-41cb-8df8-856747bf85d2__list_tables",
+      "mcp__supabase-lumina__list_tables",
+      "mcp__supabase-lumina__get_project_url"
     ]
   }
 }

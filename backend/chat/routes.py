@@ -30,9 +30,21 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 # ------------------------------------------------------------------ #
 
 class ChatRequest(BaseModel):
-    messages: list[dict]          # [{ role: "user"|"assistant", content: "..." }]
+    messages: list[dict]          # [{ role, content }] — content may be str or list (multipart w/ images)
     session_id: str | None = None
     course_id: str | None = None  # Supabase course UUID (optional scoping)
+
+
+def _extract_text(content) -> str:
+    """Return plain text from message content that may be a str or an OpenAI multipart list."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            p.get("text", "") for p in content
+            if isinstance(p, dict) and p.get("type") == "text"
+        )
+    return str(content)
 
 
 class NewSessionRequest(BaseModel):
@@ -63,7 +75,10 @@ async def chat_stream(body: ChatRequest, user=Depends(get_current_student)):
 
     # Auto-create session if not provided
     if not session_id:
-        first_user_msg = next((m["content"] for m in body.messages if m["role"] == "user"), "Chat")
+        first_user_msg = next(
+            (_extract_text(m["content"]) for m in body.messages if m["role"] == "user"),
+            "Chat",
+        )
         title = first_user_msg[:60] + ("…" if len(first_user_msg) > 60 else "")
         result = sb.table("chat_sessions").insert({
             "user_id":   user["sub"],
@@ -148,7 +163,7 @@ async def chat_stream(body: ChatRequest, user=Depends(get_current_student)):
                 sb.table("chat_messages").insert({
                     "session_id": session_id,
                     "role":       "user",
-                    "content":    last_user["content"],
+                    "content":    _extract_text(last_user["content"]),  # strip base64 images from DB
                 }).execute()
 
             # Persist assistant response — store response_ms in thinking JSONB

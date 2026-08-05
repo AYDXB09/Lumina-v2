@@ -119,6 +119,24 @@ export default function ChatView({
     return () => clearInterval(timerRef.current);
   }, [loading]);
 
+  // ---- Paste handler — captures screenshot/image from clipboard ----
+  const handlePaste = useCallback(async (e) => {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const imageItems = items.filter(item => item.type.startsWith("image/"));
+    if (imageItems.length === 0) return; // let normal text paste proceed untouched
+    e.preventDefault();
+    const newAtts = [];
+    for (const item of imageItems) {
+      const file = item.getAsFile();
+      if (!file) continue;
+      const id = Math.random().toString(36).slice(2);
+      const base64 = await toBase64(file);
+      const mimeType = file.type || "image/png";
+      newAtts.push({ id, name: `screenshot-${Date.now()}.png`, type: "image", base64, mimeType });
+    }
+    if (newAtts.length > 0) setAttachments(prev => [...prev, ...newAtts]);
+  }, []);
+
   // Close attach menu on outside click
   useEffect(() => {
     function handleClick(e) {
@@ -249,9 +267,38 @@ export default function ChatView({
           .map(a => `\n\n[File: ${a.name}]\n${a.content}`)
           .join("");
 
-    const userMsg = { role: "user", content: textContent || text };
+    const imageAtts = currentAtts.filter(a => a.type === "image");
+
+    // Message stored in React state — always has a string `content` so ChatMessage works.
+    // `_images` carries thumbnails to show in the bubble.
+    const userMsg = {
+      role: "user",
+      content: textContent || text || (imageAtts.length > 0 ? "[Image]" : ""),
+      ...(imageAtts.length > 0 && {
+        _images: imageAtts.map(img => ({ base64: img.base64, mimeType: img.mimeType })),
+      }),
+    };
+
+    // Message sent to the AI — multipart (text + image_url) when images are attached.
+    const apiContent = imageAtts.length > 0
+      ? [
+          ...(textContent ? [{ type: "text", text: textContent }] : []),
+          ...imageAtts.map(img => ({
+            type: "image_url",
+            image_url: { url: `data:${img.mimeType};base64,${img.base64}` },
+          })),
+        ]
+      : (textContent || text);
+
     const newMessages = [...messagesRef.current, userMsg];
     setMessages(newMessages);
+
+    // API messages: history as plain strings + current message with images for the AI
+    const apiMessages = [
+      ...messagesRef.current.map(m => ({ role: m.role, content: m.content })),
+      { role: "user", content: apiContent },
+    ];
+
     setLoading(true);
     setStreamingText("");
     setToolStatus(null);
@@ -262,7 +309,7 @@ export default function ChatView({
       let accumulated = "";
       await streamChat(
         authFetch,
-        newMessages,
+        apiMessages,
         {
           sessionId: sessionIdRef.current,
           courseId: course?.id ?? null,
@@ -391,7 +438,7 @@ export default function ChatView({
         <div style={s.messageInner}>
           {messages.map((m, i) => (
             <React.Fragment key={i}>
-              <ChatMessage role={m.role} content={m.content} />
+              <ChatMessage role={m.role} content={m.content} images={m._images} />
               {m.role === "assistant" && m._ms && (
                 <div style={s.timerBadge}>
                   ⏱ {m._ms >= 1000 ? `${(m._ms / 1000).toFixed(1)}s` : `${m._ms}ms`}
@@ -495,6 +542,7 @@ export default function ChatView({
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder={PLACEHOLDER}
               rows={1}
               disabled={loading}

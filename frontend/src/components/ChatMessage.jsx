@@ -115,7 +115,7 @@ function parseSegments(content) {
 }
 
 // ---- Component ----
-export default function ChatMessage({ role, content, isStreaming = false }) {
+export default function ChatMessage({ role, content, isStreaming = false, images = null }) {
   const isUser = role === "user";
   const { settings } = useSettings();
 
@@ -140,7 +140,29 @@ export default function ChatMessage({ role, content, isStreaming = false }) {
         }}
       >
         {isUser ? (
-          <span style={{ whiteSpace: "pre-wrap" }}>{content}</span>
+          <>
+            {/* Pasted / attached images */}
+            {images?.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: content ? 8 : 0 }}>
+                {images.map((img, i) => (
+                  <img
+                    key={i}
+                    src={`data:${img.mimeType};base64,${img.base64}`}
+                    alt="pasted screenshot"
+                    style={{
+                      maxWidth: 320,
+                      maxHeight: 220,
+                      borderRadius: 8,
+                      objectFit: "contain",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      background: "#0f172a",
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {content && <span style={{ whiteSpace: "pre-wrap" }}>{content}</span>}
+          </>
         ) : (
           <>
             {segments?.map((seg, i) =>

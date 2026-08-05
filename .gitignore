@@ -18,6 +18,9 @@ env/
 .env.*.local
 backend/.env
 
+# MCP config — holds SUPABASE_ACCESS_TOKEN
+.mcp.json
+
 # Node
 node_modules/
 dist/
