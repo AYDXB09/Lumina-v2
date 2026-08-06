@@ -1,6 +1,17 @@
 # Lumina V2
 
-**Status: real rebuild.** This is the second, production-oriented version of Lumina — multi-user auth, a persistent Postgres database, and a fully swappable AI provider layer. The original hackathon prototype is **[Lumina V1](https://github.com/AYDXB09/school-ai)** (public); this repo is currently **private** and will flip to public once development is further along.
+![Status](https://img.shields.io/badge/status-active_development-blue)
+![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+![React](https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=black)
+![FastAPI](https://img.shields.io/badge/FastAPI-black?logo=fastapi)
+![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20pgvector-3ECF8E?logo=supabase&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+> [!NOTE]
+> This is **Lumina V2** — the second, production-oriented rebuild (multi-user auth, a persistent Postgres database, a fully swappable AI provider layer). The original hackathon prototype is **[Lumina V1](https://github.com/AYDXB09/school-ai)** (public). This repo is currently **private** and will flip to public once development is further along.
+
+### Contents
+[What is Lumina](#what-is-lumina) · [Why Socratic tutoring](#why-socratic-tutoring--not-a-shortcut) · [Screenshots](#screenshots) · [Core Features](#core-features) · [Real Examples](#real-examples) · [Tech Stack](#tech-stack) · [AI Model Notes](#ai-model-notes) · [V1 vs V2](#v1-vs-v2) · [Running Locally](#running-locally) · [License](#license)
 
 ## What is Lumina
 
@@ -103,7 +114,8 @@ The provider layer (`backend/providers/ai/__init__.py`) is a factory that reads 
 
 **Tool-calling is disabled for Llama/DeepSeek-family models** (`MODELS_WITHOUT_TOOL_SUPPORT` in `chat/engine.py`) — those models get pre-injected context and proactive RAG results instead of the OpenAI-style tool-call loop, so they still work correctly without native tool support.
 
-**One real production incident worth knowing about:** an earlier version of the Gemini provider passed `extra_body={"thinking": {"type": "disabled"}}` to suppress thinking tokens. Google's OpenAI-compatible endpoint started rejecting that field outright (`400: Unknown name "thinking"`), which silently broke every chat request — both locally and in production — until it was caught and the field was removed. If thinking-token suppression is needed again, check Google's current API docs for the correct field shape first.
+> [!WARNING]
+> **A real production incident worth knowing about:** an earlier version of the Gemini provider passed `extra_body={"thinking": {"type": "disabled"}}` to suppress thinking tokens. Google's OpenAI-compatible endpoint started rejecting that field outright (`400: Unknown name "thinking"`), which silently broke every chat request — both locally and in production — until it was caught and the field was removed. If thinking-token suppression is needed again, check Google's current API docs for the correct field shape first.
 
 ## V1 vs V2
 
@@ -120,7 +132,8 @@ The provider layer (`backend/providers/ai/__init__.py`) is a factory that reads 
 
 ## Running Locally
 
-Requires Python 3.12+, Node 20+, and a Supabase project.
+<details>
+<summary><strong>Setup instructions</strong> (click to expand) — requires Python 3.12+, Node 20+, and a Supabase project</summary>
 
 ```bash
 git clone git@github.com:AYDXB09/Lumina-v2.git
@@ -156,6 +169,8 @@ openssl rand -hex 32
 # ENCRYPTION_KEY
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
+
+</details>
 
 ## License
 
