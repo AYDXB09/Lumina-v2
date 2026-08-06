@@ -120,12 +120,16 @@ async def get_mindmap(course_id: str, user=Depends(get_current_student)):
     """Return existing mind map or generate one from course content."""
     sb = get_supabase()
 
-    # Check for saved mind map
+    # Check for saved mind map. .single() throws PGRST116 on zero rows — the
+    # normal cold-start case (no mind map generated yet) — so use
+    # .maybe_single() instead, which returns None on zero rows. And
+    # .maybe_single().execute() itself returns None (not a response with
+    # .data=None) on zero rows, so guard on `result` before `.data`.
     result = sb.table("mind_maps").select("graph_data, updated_at").eq(
         "user_id", user["sub"]
-    ).eq("course_id", course_id).single().execute()
+    ).eq("course_id", course_id).maybe_single().execute()
 
-    if result.data and result.data.get("graph_data"):
+    if result and result.data and result.data.get("graph_data"):
         return {
             "graph_data": result.data["graph_data"],
             "generated":  False,
