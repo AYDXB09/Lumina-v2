@@ -252,7 +252,18 @@ export default function MindMapView({ course, onAskAI }) {
     const sh = shellRef.current?.clientHeight || 400;
     const lw = graph.activeWidth;
     const lh = graph.activeHeight;
-    const fitScale = clamp(Math.min(sw / lw, sh / lh) * 0.88, MIN_SCALE, 1.0);
+    // Fit-to-screen must be allowed to go below MIN_SCALE — MIN_SCALE is a floor
+    // for manual zoom-out (scroll wheel, +/- buttons) so a user can't zoom out to
+    // nothing, but a wide tree (e.g. a course with 40 leaf nodes in one category,
+    // capped per category) can genuinely need a smaller scale than that just to
+    // fit in the panel. Clamping the fit calculation to MIN_SCALE was forcing an
+    // oversized scale that pushed most of the tree outside the visible shell —
+    // found live in production capturing a mind map screenshot: "fit to screen"
+    // consistently left the root/most nodes off-screen for any course with a
+    // large assignment count. FIT_FLOOR only guards against a genuine 0/Infinity
+    // edge case (e.g. a single-node graph), not a real usability floor.
+    const FIT_FLOOR = 0.02;
+    const fitScale = clamp(Math.min(sw / lw, sh / lh) * 0.88, FIT_FLOOR, 1.0);
     return {
       x: Math.round((sw - lw * fitScale) / 2),
       y: Math.round((sh - lh * fitScale) / 2),
