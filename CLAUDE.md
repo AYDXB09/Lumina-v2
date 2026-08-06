@@ -145,13 +145,24 @@ If hitting limits: update `GROQ_MODEL=llama-3.1-8b-instant` in Railway and resta
 
 ## Railway Deployment
 
-**Status:** In progress — account created, GitHub repo connected, env vars set, first deploy triggered.
+**Status:** Live and working, confirmed end-to-end 2026-08-06.
 
 ### Deployed service
 - **Platform:** Railway (railway.app)
 - **Account:** AYDXB09 (GitHub SSO)
 - **Repo:** AYDXB09/Lumina-v2 — auto-deploys on every push to `main`
 - **URL:** https://lumina-v2-production.up.railway.app
+- **Plan:** Free ($1/month recurring usage credit — not a one-time trial, refreshes each cycle). Current usage well under the grant (~$0.16/$1.00 at last check). No plan to upgrade — user explicitly does not want to pay for hosting.
+
+### Known incident: auto-deploy silently stalled for 3 commits (2026-08-06, resolved)
+Railway's live deployment was stuck on an old commit (`bec34c0`) while `main` had moved 3 commits ahead (AP Econ/SVG diagrams, adaptive quiz + mastery, voice mode) — the site was fully "Online" and functional throughout (health checks, login, chat all passed), just running stale code. No deployment record existed at all for the missing commits — not failed, just never triggered.
+
+**Root cause was NOT billing**, despite the dashboard's alarming "0 days or $1.00 left" banner (initially misdiagnosed as a trial-expiry block — see below). Actual usage data on the Usage page showed only $0.16 of the $1.00 monthly grant spent, well within limits. A manual "Redeploy" from the dashboard succeeded immediately (build completed, deployment went Active) with zero billing friction, disproving the billing theory. A trivial empty-commit push afterward triggered a normal automatic deployment via the GitHub webhook, which caught the site up to full `main` HEAD. **The true cause of the original stall was never conclusively identified** — the manual redeploy may have "unstuck" something, or it was a transient webhook delivery gap. If this recurs, check the Deployments tab's history for a gap in commit records first (proves whether it's a trigger problem, not a build/billing problem), then try a manual Redeploy before assuming billing.
+
+**Diagnostic method that worked:** compare feature-specific strings (e.g. a CSS class name or API route path unique to a recent commit) against the live JS bundle (`curl` the deployed `/assets/index-*.js` and `grep` for the string) — this pinpoints exactly which commit is actually live without needing Railway log access.
+
+### Known bug: `quiz_attempts.difficulty` CHECK constraint mismatch (2026-08-06, fixed)
+The original schema constrained `difficulty` to `easy/medium/hard`, but `backend/quiz/generator.py`'s `DIFFICULTY_BANDS` (and all AI-facing prompt language) uses `beginner/intermediate/advanced`. Every `/api/quiz/start` call failed with a `500` (`postgrest.exceptions.APIError: ... violates check constraint "quiz_attempts_difficulty_check"`) until caught live in production. Fixed by altering the constraint to match the actual application vocabulary — found via Railway's Deploy Logs tab, which shows full Python tracebacks, not just HTTP status codes.
 
 ### Environment variables set in Railway
 | Variable | Value | Notes |
@@ -175,13 +186,13 @@ If hitting limits: update `GROQ_MODEL=llama-3.1-8b-instant` in Railway and resta
 - [x] Railway deployed and live
 - [x] `/health` returns live provider/model from `get_active_config()` (not hardcoded env var)
 - [x] SSE heartbeat prevents proxy timeout
-- [ ] Test login with Canvas API key on Railway
+- [x] Test login with Canvas API key on Railway — confirmed working with real Dwight student account
 - [ ] Enable "Remove on Inactivity" in Railway service settings
 
 ### Local vs Railway workflow
 - **Daily dev:** `./dev.sh` (localhost only — free, instant restarts)
-- **External testing:** push to GitHub → Railway auto-deploys in ~3 min
-- **Cost:** Railway Hobby $5/month + $5 credit. "Remove on Inactivity" keeps costs near zero when not actively testing.
+- **External testing:** push to GitHub → Railway auto-deploys, but **verify it actually happened** — see the auto-deploy stall incident above. Don't assume a push deployed just because it didn't error.
+- **Cost:** Free plan, $1/month recurring credit. Staying on Free — no paid upgrade planned.
 
 ### Architecture note
 FastAPI serves the React build as a SPA catch-all. The Dockerfile builds the frontend

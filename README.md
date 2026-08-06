@@ -10,9 +10,43 @@ Canvas's own AI (IgniteAI) is teacher-configured and assignment-scoped. Lumina i
 
 **Pilot school:** Dwight Global Online School (dwight.instructure.com)
 
+## Why Socratic tutoring — not a shortcut
+
+A generic AI chatbot answers a homework question directly. That's convenient, and it's also exactly the problem: a student who pastes their essay prompt into ChatGPT and gets a finished argument back hasn't learned to construct one themselves. For a school, that's not a tutoring tool — it's an integrity risk wearing a tutoring tool's name.
+
+Lumina is built around a **real rule enforced in the system prompt** (`backend/chat/prompt.py`), not a marketing claim: the AI explicitly distinguishes between two kinds of questions and only two.
+
+- **Factual questions** — exam structure, syllabus dates, definitions, "what's due this week" — get answered **directly and completely**. A student doesn't need to be Socratically interrogated about when their IA is due; they need the date.
+- **Problem-solving questions** — "how do I solve this," "why does this happen," "help me understand X" — get **guided, not solved**. The AI asks a leading question, points at the relevant concept, or breaks the problem into a smaller first step, and stops there. It does not write the essay. It does not hand over the derivation. The screenshot above is a real, unedited example of this in action, including the AI ending its own answer by asking the student to demonstrate the reasoning back.
+
+This is enforced structurally, not by hoping the model behaves — the same instruction fires for every subject (12 subject-specific prompt modules, from Economics to Chemistry to English), so a Global Politics question and a Physics question get the same "guide, don't solve" treatment, tuned to that subject's actual command terms and assessment criteria.
+
+**How this compares:**
+
+| | Generic AI chatbot (ChatGPT, etc.) | Canvas IgniteAI | Lumina |
+|---|---|---|---|
+| Who it's built for | Anyone, any task | Teachers (grading, rubrics, assignment setup) | Students, specifically at the point of being stuck |
+| Problem-solving questions | Answers directly — will write the essay, solve the derivation | N/A — not student-facing in this way | Guides with hints; does not hand over the answer |
+| Factual questions (dates, syllabus, definitions) | Answers directly, but with no idea what *your* syllabus actually says | N/A | Answers directly, grounded in the real synced Canvas course |
+| Knows the student's actual course content | No — works from general web knowledge only | Teacher-side, assignment-scoped | Yes — RAG over synced Canvas materials + the student's own uploaded notes |
+| Available at 11pm with no teacher around | Yes, but ungrounded and unmonitored by the school | No — teacher-initiated only | Yes — this is specifically the gap it exists to fill |
+| Complements classroom teaching or replaces it | Neither — it's a separate, unsanctioned tool students use anyway | Doesn't touch student-side learning at all | Extends what the teacher already assigned — same syllabus, same course content, guided practice between classes |
+
+The point isn't that Lumina is smarter than ChatGPT — it's that ChatGPT has no idea what was actually taught in this class, and no reason to hold back the answer. Lumina is scoped to the real syllabus and instructed, at the code level, to make the student do the thinking.
+
 ## Screenshots
 
-*Screenshots pending — the UI is still actively changing week to week. Will be added once it stabilizes.*
+**A real homework question, answered Socratically — not shortcut.** The student asks why a price ceiling causes a shortage. Lumina builds the explanation with an interactive graph and a worked real-world example (rent control), then ends by asking the student to apply the reasoning themselves before moving on — this is the core pedagogical claim in practice, not marketing copy.
+
+![Socratic guidance in action](./docs/screenshots/socratic-guidance.png)
+
+**Course-aware from the moment you open a chat.** No "which class is this for?" — the active course is already known, and quick actions are tailored to it.
+
+![Welcome screen with course-aware quick actions](./docs/screenshots/welcome-quick-actions.png)
+
+**Adaptive quiz with persistent mastery tracking.** One question at a time; answering correctly moves the mastery bar immediately (50% → 65% here) and the next question's difficulty adjusts accordingly — and unlike a browser-refresh-resets-everything quiz, this mastery score is saved and picked up again next time.
+
+![Adaptive quiz with live mastery bar](./docs/screenshots/adaptive-quiz-mastery.png)
 
 ## Core Features
 
