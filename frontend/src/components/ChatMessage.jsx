@@ -63,16 +63,43 @@ function renderMath(tex, displayMode) {
   }
 }
 
+// Math is rendered to real HTML (including inline <svg> for KaTeX constructs
+// like \vec{}) — but that HTML must never be handed to marked() directly.
+// marked's tokenizer (especially the table-cell splitter) re-parses whatever
+// text it's given, and re-parsing already-rendered SVG markup as markdown
+// corrupts it — an SVG <path>'s "d" attribute can end up dumped as visible
+// text. This only showed up inside tables, not prose, because marked's table
+// parser is far more aggressive about re-tokenizing cell content.
+//
+// Fix: replace math with an inert placeholder token (letters/digits only —
+// nothing marked could ever treat as markdown syntax) before marked() runs,
+// then swap the real KaTeX HTML back in afterwards, once marked is done.
 function processMath(raw) {
+  const rendered = new Map();
+  let i = 0;
+  const placeholder = (html) => {
+    const token = `LUMINAMATHTOKEN${i++}ENDTOKEN`;
+    rendered.set(token, html);
+    return token;
+  };
+
   // Block math first ($$...$$), then inline ($...$)
   let out = raw.replace(BLOCK_MATH_RE, (_, m1, m2) => {
     const tex = (m1 ?? m2).trim();
-    return `<span class="math-block">${renderMath(tex, true)}</span>`;
+    return placeholder(`<span class="math-block">${renderMath(tex, true)}</span>`);
   });
   out = out.replace(INLINE_MATH_RE, (_, m1, m2) => {
     const tex = (m1 ?? m2).trim();
-    return `<span class="math-inline">${renderMath(tex, false)}</span>`;
+    return placeholder(`<span class="math-inline">${renderMath(tex, false)}</span>`);
   });
+  return { text: out, rendered };
+}
+
+function restoreMath(html, rendered) {
+  let out = html;
+  for (const [token, mathHtml] of rendered) {
+    out = out.replaceAll(token, mathHtml);
+  }
   return out;
 }
 
@@ -97,9 +124,10 @@ renderer.image = ({ href, title, text }) => {
 // ---- Main render pipeline ----
 function renderMarkdown(raw) {
   if (!raw) return "";
-  const stripped  = stripThinking(raw);
-  const mathApplied = processMath(stripped);
-  const html = marked.parse(mathApplied, { renderer });
+  const stripped = stripThinking(raw);
+  const { text: withPlaceholders, rendered } = processMath(stripped);
+  const parsedHtml = marked.parse(withPlaceholders, { renderer });
+  const html = restoreMath(parsedHtml, rendered);
   return DOMPurify.sanitize(html, {
     ADD_TAGS: ["span"],
     ADD_ATTR: ["class", "style", "data-href", "title", "aria-hidden"],
