@@ -59,6 +59,16 @@ The point isn't that Lumina is smarter than ChatGPT — it's that ChatGPT has no
 
 ![Adaptive quiz with live mastery bar](./docs/screenshots/adaptive-quiz-mastery.png)
 
+**Interactive mind map, auto-generated from the actual synced course content.** No manual setup — pure SVG, drag/zoom/pan, built entirely from what's already been synced from Canvas.
+
+![Mind map view](./docs/screenshots/mind-map.png)
+
+**LaTeX rendering is real, not a claim.** Vector notation ($\vec{F}$), subscripts, square roots, and fractions all render as genuine typeset math via KaTeX — this is an actual response, not a mockup.
+
+![LaTeX vector notation rendering in a physics answer](./docs/screenshots/latex-vector-notation.png)
+
+Also included: a **Notices** tab (teacher announcements), **Feedback** tab (grades + teacher comments), and the Canvas-sourced **Quizzes** tab (distinct from the AI-generated Practice tab above) — straightforward synced-data views, not pictured here.
+
 ## Core Features
 
 - **Socratic AI Chat** — guides students to answers through hints and leading questions on problem-solving; answers factual questions (exam structure, dates, syllabus content) directly instead of Socratically deflecting them, since students need information, not a puzzle.
