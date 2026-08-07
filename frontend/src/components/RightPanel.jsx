@@ -374,7 +374,8 @@ export default function RightPanel({ course, onClose, onAskAI }) {
     { id: "announcements", label: "Notices",       count: announcements.length },
     { id: "quizzes",       label: "Quizzes",       count: quizzes.length },
     { id: "feedback",      label: "Feedback",      count: feedback.length },
-    { id: "mindmap",       label: "Map",           count: 0 },
+    // Mind Map tab hidden (2026-08-07) — deemed too complex / not worthwhile. Feature code
+    // (MindMapView.jsx, backend/mindmap/routes.py) left intact, just unreachable from the UI.
     { id: "studyplan",     label: "Plan",          count: 0 },
     { id: "practicequiz",  label: "Practice",      count: 0 },
   ];

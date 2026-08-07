@@ -9,11 +9,15 @@
 
 > [!NOTE]
 > This is **Lumina V2** — the second, production-oriented rebuild (multi-user auth, a persistent Postgres database, a fully swappable AI provider layer). The original hackathon prototype is **[Lumina V1](https://github.com/AYDXB09/school-ai)** (public). This repo is currently **private** and will flip to public once development is further along.
+>
+> **"Active development" isn't just a technical status.** The app runs live against real Dwight student data today, but school-wide rollout is gated on more than code being done — a signed DPA with the school, sub-processor DPAs still in progress (see [Compliance](#compliance--data-privacy)), and the school admin's own sign-off, not just student adoption.
 
 ### Contents
-[What is Lumina](#what-is-lumina) · [Why Socratic tutoring](#why-socratic-tutoring--not-a-shortcut) · [Screenshots](#screenshots) · [Core Features](#core-features) · [Real Examples](#real-examples) · [Tech Stack](#tech-stack) · [AI Model Notes](#ai-model-notes) · [V1 vs V2](#v1-vs-v2) · [Running Locally](#running-locally) · [License](#license)
+[What is Lumina](#what-is-lumina) · [Why Socratic tutoring](#why-socratic-tutoring--not-a-shortcut) · [Screenshots](#screenshots) · [Core Features](#core-features) · [Real Examples](#real-examples) · [Architecture](#architecture) · [Tech Stack](#tech-stack) · [AI Model Notes](#ai-model-notes) · [Compliance & Data Privacy](#compliance--data-privacy) · [V1 vs V2](#v1-vs-v2) · [Roadmap](#roadmap) · [Running Locally](#running-locally) · [License](#license)
 
 ## What is Lumina
+
+**The pitch in one line:** a generic AI chatbot will write the essay for you; Lumina is built, at the code level, to guide you to write it yourself — because a school can sanction a tutor, but not a shortcut.
 
 Lumina is an **AI-powered Socratic tutoring platform** built on top of Canvas LMS — not a Canvas replacement, and not a teacher tool. It's a student study companion, built for the student who's stuck on homework at 11pm with no teacher to ask.
 
@@ -23,33 +27,32 @@ Canvas's own AI (IgniteAI) is teacher-configured and assignment-scoped. Lumina i
 
 ## Why Socratic tutoring — not a shortcut
 
-A generic AI chatbot answers a homework question directly. That's convenient, and it's also exactly the problem: a student who pastes their essay prompt into ChatGPT and gets a finished argument back hasn't learned to construct one themselves. For a school, that's not a tutoring tool — it's an integrity risk wearing a tutoring tool's name.
-
-Lumina is built around a **real rule enforced in the system prompt** (`backend/chat/prompt.py`), not a marketing claim: the AI explicitly distinguishes between two kinds of questions and only two.
+Lumina is built around a **real rule enforced in the system prompt** (`backend/chat/prompt.py`), not a marketing claim: the AI distinguishes between two kinds of questions, and only two.
 
 - **Factual questions** — exam structure, syllabus dates, definitions, "what's due this week" — get answered **directly and completely**. A student doesn't need to be Socratically interrogated about when their IA is due; they need the date.
-- **Problem-solving questions** — "how do I solve this," "why does this happen," "help me understand X" — get **guided, not solved**. The AI asks a leading question, points at the relevant concept, or breaks the problem into a smaller first step, and stops there. It does not write the essay. It does not hand over the derivation. The screenshot above is a real, unedited example of this in action, including the AI ending its own answer by asking the student to demonstrate the reasoning back.
+- **Problem-solving questions** — "how do I solve this," "why does this happen" — get **guided, not solved**. The AI asks a leading question or breaks the problem into a smaller first step, and stops there — it does not write the essay or hand over the derivation.
 
-This is enforced structurally, not by hoping the model behaves — the same instruction fires for every subject (12 subject-specific prompt modules, from Economics to Chemistry to English), so a Global Politics question and a Physics question get the same "guide, don't solve" treatment, tuned to that subject's actual command terms and assessment criteria.
+This fires the same way across all 12 subject-specific prompt modules (Economics to Chemistry to English), tuned to each subject's actual command terms and assessment criteria — not one prompt that happens to work for one subject.
 
 **How this compares:**
 
-| | Generic AI chatbot (ChatGPT, etc.) | Canvas IgniteAI | Lumina |
+| | Generic AI chatbot | Canvas IgniteAI | Lumina |
 |---|---|---|---|
-| Who it's built for | Anyone, any task | Teachers (grading, rubrics, assignment setup) | Students, specifically at the point of being stuck |
-| Problem-solving questions | Answers directly — will write the essay, solve the derivation | N/A — not student-facing in this way | Guides with hints; does not hand over the answer |
-| Factual questions (dates, syllabus, definitions) | Answers directly, but with no idea what *your* syllabus actually says | N/A | Answers directly, grounded in the real synced Canvas course |
-| Knows the student's actual course content | No — works from general web knowledge only | Teacher-side, assignment-scoped | Yes — RAG over synced Canvas materials + the student's own uploaded notes |
-| Available at 11pm with no teacher around | Yes, but ungrounded and unmonitored by the school | No — teacher-initiated only | Yes — this is specifically the gap it exists to fill |
-| Complements classroom teaching or replaces it | Neither — it's a separate, unsanctioned tool students use anyway | Doesn't touch student-side learning at all | Extends what the teacher already assigned — same syllabus, same course content, guided practice between classes |
+| Problem-solving questions | Answers directly — writes the essay, solves the derivation | N/A — not student-facing | Guides with hints; doesn't hand over the answer |
+| Knows the student's actual course content | No — general web knowledge only | Teacher-side, assignment-scoped | Yes — RAG over synced Canvas materials + uploaded notes |
+| Available at 11pm, no teacher around | Yes, but ungrounded and unmonitored by the school | No — teacher-initiated only | Yes — this is the gap it exists to fill |
 
-The point isn't that Lumina is smarter than ChatGPT — it's that ChatGPT has no idea what was actually taught in this class, and no reason to hold back the answer. Lumina is scoped to the real syllabus and instructed, at the code level, to make the student do the thinking.
+The point isn't that Lumina is smarter than ChatGPT — it's that ChatGPT has no idea what was actually taught in this class, and no reason to hold back the answer.
 
 ## Screenshots
 
 **A real homework question, answered Socratically — not shortcut.** The student asks why a price ceiling causes a shortage. Lumina builds the explanation with an interactive graph and a worked real-world example (rent control), then ends by asking the student to apply the reasoning themselves before moving on — this is the core pedagogical claim in practice, not marketing copy.
 
 ![Socratic guidance in action](./docs/screenshots/socratic-guidance.png)
+
+**It's a conversation, not a one-shot answer.** The AI ends its first response by asking what the student's actual topic and texts are — rather than guessing — and picks up exactly where it left off once the student answers, tailoring the second response to what was just said.
+
+![Multi-turn conversation building on the student's answer](./docs/screenshots/multi-turn-conversation.png)
 
 **Course-aware from the moment you open a chat.** No "which class is this for?" — the active course is already known, and quick actions are tailored to it.
 
@@ -59,15 +62,23 @@ The point isn't that Lumina is smarter than ChatGPT — it's that ChatGPT has no
 
 ![Adaptive quiz with live mastery bar](./docs/screenshots/adaptive-quiz-mastery.png)
 
-**Interactive mind map, auto-generated from the actual synced course content.** No manual setup — pure SVG, drag/zoom/pan, built entirely from what's already been synced from Canvas.
-
-![Mind map view](./docs/screenshots/mind-map.png)
-
 **LaTeX rendering is real, not a claim.** Vector notation ($\vec{F}$), subscripts, square roots, and fractions all render as genuine typeset math via KaTeX — this is an actual response, not a mockup.
 
 ![LaTeX vector notation rendering in a physics answer](./docs/screenshots/latex-vector-notation.png)
 
-Also included: a **Notices** tab (teacher announcements), **Feedback** tab (grades + teacher comments), and the Canvas-sourced **Quizzes** tab (distinct from the AI-generated Practice tab above) — straightforward synced-data views, not pictured here.
+**Every assignment tracked, overdue or not.** Real synced Canvas data — this student has 62 assignments indexed for one course alone, each flagged with exactly how overdue it is.
+
+![Assignments tab with real overdue tracking](./docs/screenshots/assignments-tracking.png)
+
+**Settings that actually do something.** Colour theme (including a Dwight-branded navy option), chat font, font size, and how much Canvas context gets injected into every message — all live preferences, not a static page.
+
+![Settings modal — General tab](./docs/screenshots/settings-customization.png)
+
+**Calendar-aware, not Canvas-only.** The Canvas calendar auto-connects on first sync; students can layer in their own personal `.ics` feeds (family calendar, activities) so study-plan generation accounts for time that's already blocked off.
+
+![Settings modal — Calendar tab with personal calendar sync](./docs/screenshots/calendar-integration.png)
+
+Also included: a **Notices** tab (teacher announcements), **Feedback** tab (grades + teacher comments), and the Canvas-sourced **Quizzes** tab (distinct from the AI-generated Practice tab above) — straightforward synced-data views, not pictured here since this account has none indexed yet.
 
 ## Core Features
 
@@ -78,7 +89,6 @@ Also included: a **Notices** tab (teacher announcements), **Feedback** tab (grad
 - **RAG over real course content** — pgvector semantic search over synced Canvas material and student-uploaded documents (PDFs, notes, past papers), so answers are grounded in what the student's own teacher actually assigned.
 - **12 subject-specific prompt modules** — Economics (IB + AP, with interactive graphs and custom SVG diagrams), Mathematics, Physics, Chemistry (LaTeX chemistry notation), Biology, English, History, Languages, Psychology, Computer Science, Geography, Global Politics — each lazy-loaded only when that course is active.
 - **Full IB Internal Assessment reference** — every IB subject module carries the actual IA criteria (word counts, mark weights, assessment criteria, deadlines, official IB links), so the AI never deflects an IA question back to "ask your teacher."
-- **Interactive mind maps** — pure SVG, auto-generated from a course's synced content, with drag/zoom and an "Ask AI about this" shortcut into chat.
 - **Voice mode** — free, browser-native mic dictation and per-message read-aloud (no paid speech API).
 - **Provider-agnostic AI layer** — switch between K2, OpenRouter, Anthropic, NVIDIA NIM, Groq, or Gemini via one environment variable, no code changes.
 
@@ -91,6 +101,31 @@ Also included: a **Notices** tab (teacher announcements), **Feedback** tab (grad
 | **Subject-aware formatting** | In an active Chemistry course, the AI is instructed to write `$\ce{2Na(s) + 2H2O(l) -> 2NaOH(aq) + H2(g)}$` (rendered via KaTeX's mhchem extension) instead of plain-text "2Na + 2H2O -> ...". In Biology, species names are required to render as *Escherichia coli*, not plain text. |
 | **AP vs. IB Economics** | A course named "AP Macroeconomics" gets College Board exam framing (MCQ + FRQ, point-based grading, "expansionary/contractionary" terminology). A course named "IB Economics SL" gets IB command-term framing (Explain/Evaluate/Discuss) and the full IA commentary-criteria table. Same underlying interactive graphs, different exam coaching. |
 | **Calendar-aware answers** | Ask "am I free this weekend?" and the AI checks the actual synced calendar events (personal calendars + Canvas's own auto-generated calendar) for a real answer, not a guess. |
+| **Settings that change real behaviour** | Toggling "Full Canvas context" off stops assignment/quiz data from being injected into every message; switching the fetch window from 1 week to 3 months changes exactly how far forward `_fetch_and_cache()` pulls personal calendar events — these aren't cosmetic preferences, they change what the AI actually sees. |
+
+## Architecture
+
+Single Railway service (FastAPI serves the React build as a static SPA), talking to Supabase for all persistence/RAG, a swappable AI provider, and Canvas over a read-only REST API.
+
+```mermaid
+flowchart LR
+    Student["Student Browser"] -- HTTPS --> Railway
+
+    subgraph Railway["Railway (US East) — single service"]
+        FE["React 19 Frontend"]
+        BE["FastAPI Backend"]
+        FE --- BE
+    end
+
+    Railway -- "Postgres + pgvector\n(RAG, chat history, sessions)" --> Supabase[("Supabase\nUS East")]
+    Railway -- "stream() / complete()\nprovider-agnostic" --> AI["AI Provider\ncurrently: Gemini 2.5 Flash-Lite\n(swappable: K2 / OpenRouter / Anthropic / NVIDIA NIM / Groq)"]
+    Railway -- "Read-only REST API\nstudent's own token" --> Canvas["Canvas LMS\nDwight Instance"]
+    Railway -- "transactional email" --> Resend["Resend"]
+```
+
+- **No direct frontend↔Supabase calls** — the browser only ever talks to the FastAPI backend; Supabase is reached exclusively via the service-role key server-side, with RLS enabled deny-all as a second layer.
+- **Canvas access is read-only** — the backend never writes to Canvas, and a student's token only ever retrieves that student's own data.
+- **AI provider is a factory read from one env var** (`AI_PROVIDER`) — swapping models is a Railway config change + restart, not a code change.
 
 ## Tech Stack
 
@@ -98,7 +133,7 @@ Also included: a **Notices** tab (teacher announcements), **Feedback** tab (grad
 - React 19 + Vite
 - KaTeX (+ mhchem extension) for LaTeX math and chemistry notation
 - `marked` + DOMPurify for sanitized Markdown rendering
-- Pure SVG for mind maps and custom diagrams — no charting/graph library dependency
+- Pure SVG for custom subject diagrams — no charting/graph library dependency
 
 **Backend**
 - Python + FastAPI, served via Uvicorn
@@ -107,8 +142,8 @@ Also included: a **Notices** tab (teacher announcements), **Feedback** tab (grad
 - Fernet symmetric encryption for Canvas tokens at rest
 
 **AI**
-- Provider abstraction (`backend/providers/ai/`) — K2, OpenRouter, Anthropic, NVIDIA NIM, Groq, Gemini, switchable via one env var
-- Currently running: Gemini `gemini-2.5-flash-lite`
+- **Currently running: Gemini `gemini-2.5-flash-lite`** — set via `AI_PROVIDER=gemini` in Railway, no code involved
+- Provider abstraction (`backend/providers/ai/`) — any model can be plugged in behind the same `stream()`/`complete()` interface; six providers ship today (K2, OpenRouter, Anthropic, NVIDIA NIM, Groq, Gemini), and adding a new one (e.g. a future frontier model) means writing one provider class, not touching the rest of the app
 - Gemini embedding API for RAG (no local embedding model — faster cold starts, less memory)
 
 **Integrations**
@@ -127,6 +162,34 @@ The provider layer (`backend/providers/ai/__init__.py`) is a factory that reads 
 > [!WARNING]
 > **A real production incident worth knowing about:** an earlier version of the Gemini provider passed `extra_body={"thinking": {"type": "disabled"}}` to suppress thinking tokens. Google's OpenAI-compatible endpoint started rejecting that field outright (`400: Unknown name "thinking"`), which silently broke every chat request — both locally and in production — until it was caught and the field was removed. If thinking-token suppression is needed again, check Google's current API docs for the correct field shape first.
 
+## Compliance & Data Privacy
+
+> [!NOTE]
+> Lumina is domiciled in New York + Florida (pilot school Dwight Global Online School), which triggers specific state student-privacy law on top of the usual federal/international regimes. This section states what applies and where agreements currently stand — it is not legal advice.
+
+**Applicable regulations**
+
+| Regulation | Applies | Requirement |
+|---|---|---|
+| NY Education Law §2-d | ✅ | DPA required with the school before student data collection |
+| Florida SDPA §1002.222 | ✅ | Signed agreement required before launch |
+| COPPA | ✅ | Parental consent required for students under 13 |
+| GDPR | ✅ likely | International students — data minimisation + right to deletion |
+| FERPA | — N/A | Private school, no federal funding — does not apply |
+| CCPA | ⚠️ check | California-resident students may trigger obligations |
+
+**Sub-processor DPA status**
+
+| Sub-processor | Role | Status |
+|---|---|---|
+| Supabase | Database + pgvector storage | ✅ DPA signed |
+| Resend | Transactional email | ✅ DPA signed |
+| Anthropic | AI provider (backup) | ✅ DPA signed |
+| Railway | App hosting & deployment | ⚠️ Limited DPA |
+| NVIDIA NIM | AI provider (backup) | ⚠️ Review needed |
+
+**What's encrypted / how data is handled** — see the [Student Data & Privacy](#core-features) protections already listed above: Canvas tokens are Fernet-encrypted at rest and never logged, refresh tokens live in an `httpOnly` cookie (XSS-safe), the access token never touches `localStorage`/disk, there's no third-party tracking or ad network, and both Supabase and Railway are US East — no international data transfer for the current deployment. Every Supabase table has RLS enabled with zero anon-key policies (deny-all); the backend is the only thing that ever talks to Supabase, always via the service-role key.
+
 ## V1 vs V2
 
 | | V1 (school-ai) | V2 (this repo) |
@@ -139,6 +202,17 @@ The provider layer (`backend/providers/ai/__init__.py`) is a factory that reads 
 | Study plans | Not built | Cross-course, deterministic scheduling + AI content |
 | Adaptive quiz | React-state mastery (resets on refresh) | Persisted mastery via `mastery_scores` table |
 | Voice mode | Full hands-free loop (STT→AI→TTS→STT) | Mic dictation + read-aloud primitives (hands-free loop not yet ported) |
+
+## Roadmap
+
+**Phase 1 — Foundation: ✅ complete.** Full schema, Canvas API key auth, provider-agnostic AI layer, pgvector RAG, SSE streaming chat, calendar integration, adaptive quiz, study plans, voice mode, admin knowledge base — all live on Railway. (Mind map was built in this phase but later hidden from the UI — too complex for the value it added — feature code remains in the repo, unreachable from the tab bar.)
+
+| Phase | Focus | Status |
+|---|---|---|
+| **2 — Compliance** | Parental consent flow (COPPA under-13), student data deletion endpoint (GDPR), full audit log for data access, remaining sub-processor DPAs (Railway, NVIDIA) | ⏳ Not started |
+| **3 — Auth upgrade** | Canvas OAuth2 (removes manual API-key entry, requires a Developer Key from Dwight's Canvas admin), LTI 1.3 for SSO + roster provisioning | ⏳ Planned |
+| **4 — School admin & monitoring** | School admin panel (AI model config, feature flags), teacher read-only view (per-student usage + quiz topics), audit trail + notifications | ⏳ Planned |
+| **5 — AWS path** | ECS Fargate + RDS Postgres + pgvector, AWS Bedrock (Claude, AWS DPA covers no-training), S3 storage — for schools that require AWS-only infrastructure | ⏳ Planned, not started |
 
 ## Running Locally
 
