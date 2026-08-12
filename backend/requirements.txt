@@ -10,6 +10,7 @@ supabase>=2.4.0
 PyJWT>=2.8.0
 cryptography>=42.0.0
 passlib[bcrypt]>=1.7.4
+email-validator>=2.0.0   # required for pydantic EmailStr (signup/login/reset-password bodies)
 
 # HTTP client
 httpx>=0.27.0

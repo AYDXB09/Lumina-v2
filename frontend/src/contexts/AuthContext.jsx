@@ -46,26 +46,49 @@ export function AuthProvider({ children }) {
   }, []);
 
   // ---------------------------------------------------------------- //
-  // Login with Canvas API key                                         //
+  // Auth requests share one shape: POST body → { access_token, user }  //
   // ---------------------------------------------------------------- //
-  const loginWithApiKey = useCallback(async (canvasUrl, apiKey) => {
-    const res = await fetch(`${API_BASE}/auth/apikey`, {
+  const _authPost = useCallback(async (path, body) => {
+    const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ canvas_url: canvasUrl, api_key: apiKey }),
+      body: JSON.stringify(body),
     });
-
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail ?? "Login failed");
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail ?? "Request failed");
     }
+    return res.json();
+  }, []);
 
-    const data = await res.json();
+  /** Create a Lumina account: email + password + one-time Canvas key. */
+  const signup = useCallback(async (email, password, canvasUrl, apiKey) => {
+    const data = await _authPost("/auth/signup", {
+      email, password, canvas_url: canvasUrl, api_key: apiKey,
+    });
     setAccessToken(data.access_token);
     setUser(data.user);
     return data.user;
-  }, []);
+  }, [_authPost]);
+
+  /** Sign in with email + password. */
+  const login = useCallback(async (email, password) => {
+    const data = await _authPost("/auth/login", { email, password });
+    setAccessToken(data.access_token);
+    setUser(data.user);
+    return data.user;
+  }, [_authPost]);
+
+  /** Request a password-reset email. Always resolves — backend never reveals if the email exists. */
+  const forgotPassword = useCallback(async (email) => {
+    await _authPost("/auth/forgot-password", { email });
+  }, [_authPost]);
+
+  /** Consume the token from the reset-link email and set a new password. */
+  const resetPassword = useCallback(async (tokenHash, newPassword) => {
+    await _authPost("/auth/reset-password", { token_hash: tokenHash, new_password: newPassword });
+  }, [_authPost]);
 
   // ---------------------------------------------------------------- //
   // Logout                                                            //
@@ -120,8 +143,28 @@ export function AuthProvider({ children }) {
     return res;
   }, [accessToken]);
 
+  /** Replace the stored Canvas API key (Settings → Account). */
+  const updateCanvasKey = useCallback(async (canvasUrl, apiKey) => {
+    const res = await authFetch(`${API_BASE}/auth/canvas-key`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ canvas_url: canvasUrl, api_key: apiKey }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail ?? "Failed to update Canvas key");
+    }
+    const data = await res.json();
+    setUser(prev => prev ? { ...prev, canvas_key_last4: data.canvas_key_last4 } : prev);
+    return data;
+  }, [authFetch]);
+
   return (
-    <AuthContext.Provider value={{ user, accessToken, loading, loginWithApiKey, logout, authFetch }}>
+    <AuthContext.Provider value={{
+      user, accessToken, loading,
+      signup, login, forgotPassword, resetPassword, updateCanvasKey,
+      logout, authFetch,
+    }}>
       {children}
     </AuthContext.Provider>
   );

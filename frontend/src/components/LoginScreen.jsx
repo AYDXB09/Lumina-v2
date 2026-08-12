@@ -1,9 +1,15 @@
 /**
- * LoginScreen — Canvas API Key authentication.
+ * LoginScreen — email + password authentication (Supabase Auth).
  *
- * Student enters:
- *   1. Their Canvas URL  (defaults to Dwight's)
- *   2. Their Canvas API key (generated in Canvas → Account → Settings → New Access Token)
+ * Two modes:
+ *   - Sign in: email + password
+ *   - Create account: email + password + Canvas URL + Canvas API key,
+ *     captured once so it never needs pasting again (see SettingsModal
+ *     for where it's viewed/replaced afterwards).
+ *
+ * "Forgot password?" sends a reset-link email; the link lands on
+ * ResetPasswordScreen (rendered by App.jsx based on the URL, outside
+ * this auth gate since the user isn't signed in yet).
  */
 
 import React, { useState } from "react";
@@ -13,18 +19,31 @@ import LuminaLogo from "./LuminaLogo.jsx";
 const DEFAULT_CANVAS_URL = import.meta.env.VITE_CANVAS_URL ?? "https://dwight.instructure.com";
 
 export default function LoginScreen() {
-  const { loginWithApiKey } = useAuth();
+  const { login, signup, forgotPassword } = useAuth();
+
+  const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [canvasUrl, setCanvasUrl] = useState(DEFAULT_CANVAS_URL);
   const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setLoading(true);
     try {
-      await loginWithApiKey(canvasUrl.trim(), apiKey.trim());
+      if (mode === "signin") {
+        await login(email.trim(), password);
+      } else if (mode === "signup") {
+        await signup(email.trim(), password, canvasUrl.trim(), apiKey.trim());
+      } else if (mode === "forgot") {
+        await forgotPassword(email.trim());
+        setNotice("If an account exists for that email, a reset link is on its way.");
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -35,7 +54,6 @@ export default function LoginScreen() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        {/* Logo / wordmark */}
         <div style={styles.header}>
           <div style={styles.logoWrap}><LuminaLogo size={52} /></div>
           <h1 style={styles.title}>Lumina</h1>
@@ -44,40 +62,97 @@ export default function LoginScreen() {
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <label style={styles.label}>
-            Canvas URL
+            Email
             <input
               style={styles.input}
-              type="url"
-              value={canvasUrl}
-              onChange={(e) => setCanvasUrl(e.target.value)}
-              placeholder="https://yourschool.instructure.com"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@school.edu"
               required
-              autoComplete="url"
+              autoComplete="email"
             />
           </label>
 
-          <label style={styles.label}>
-            Canvas API Key
-            <input
-              style={styles.input}
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Paste your Canvas access token"
-              required
-              autoComplete="current-password"
-            />
-            <span style={styles.hint}>
-              Canvas → Account → Settings → New Access Token
-            </span>
-          </label>
+          {mode !== "forgot" && (
+            <label style={styles.label}>
+              Password
+              <input
+                style={styles.input}
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={mode === "signup" ? "Choose a password" : "Your password"}
+                required
+                minLength={8}
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              />
+            </label>
+          )}
+
+          {mode === "signup" && (
+            <>
+              <label style={styles.label}>
+                Canvas URL
+                <input
+                  style={styles.input}
+                  type="url"
+                  value={canvasUrl}
+                  onChange={(e) => setCanvasUrl(e.target.value)}
+                  placeholder="https://yourschool.instructure.com"
+                  required
+                  autoComplete="url"
+                />
+              </label>
+
+              <label style={styles.label}>
+                Canvas API Key
+                <input
+                  style={styles.input}
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Paste your Canvas access token"
+                  required
+                  autoComplete="off"
+                />
+                <span style={styles.hint}>
+                  Canvas → Account → Settings → New Access Token. You'll only paste this once —
+                  it's stored encrypted and shown masked afterwards in Settings.
+                </span>
+              </label>
+            </>
+          )}
 
           {error && <p style={styles.error}>{error}</p>}
+          {notice && <p style={styles.notice}>{notice}</p>}
 
           <button type="submit" style={styles.button} disabled={loading}>
-            {loading ? "Signing in…" : "Sign in with Canvas"}
+            {loading
+              ? "Please wait…"
+              : mode === "signin" ? "Sign in"
+              : mode === "signup" ? "Create account"
+              : "Send reset link"}
           </button>
         </form>
+
+        <div style={styles.switchRow}>
+          {mode === "signin" && (
+            <>
+              <button style={styles.linkBtn} onClick={() => { setMode("forgot"); setError(null); setNotice(null); }}>
+                Forgot password?
+              </button>
+              <button style={styles.linkBtn} onClick={() => { setMode("signup"); setError(null); setNotice(null); }}>
+                Create an account
+              </button>
+            </>
+          )}
+          {mode !== "signin" && (
+            <button style={styles.linkBtn} onClick={() => { setMode("signin"); setError(null); setNotice(null); }}>
+              ← Back to sign in
+            </button>
+          )}
+        </div>
 
         <p style={styles.footer}>
           Your Canvas key is encrypted and never shared with anyone.
@@ -179,6 +254,28 @@ const styles = {
     border: "1px solid rgba(248,113,113,0.25)",
     borderRadius: "8px",
     padding: "10px 14px",
+  },
+  notice: {
+    color: "var(--color-text)",
+    fontSize: "14px",
+    background: "var(--color-surface-2)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "8px",
+    padding: "10px 14px",
+  },
+  switchRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    marginTop: "18px",
+  },
+  linkBtn: {
+    background: "none",
+    border: "none",
+    color: "var(--color-primary)",
+    fontSize: "13px",
+    fontWeight: "500",
+    cursor: "pointer",
+    padding: 0,
   },
   footer: {
     marginTop: "24px",

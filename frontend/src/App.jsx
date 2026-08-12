@@ -11,6 +11,7 @@ import { useAuth } from "./contexts/AuthContext.jsx";
 import { SettingsProvider } from "./contexts/SettingsContext.jsx";
 import { useIsMobile } from "./hooks/useIsMobile.js";
 import LoginScreen from "./components/LoginScreen.jsx";
+import ResetPasswordScreen from "./components/ResetPasswordScreen.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import ChatView from "./components/ChatView.jsx";
 import RightPanel from "./components/RightPanel.jsx";
@@ -153,6 +154,15 @@ function MainLayout() {
 
 export default function App() {
   const { user, loading } = useAuth();
+
+  // Reset-password link lands here regardless of auth state — the user
+  // isn't signed in yet at this point.
+  if (window.location.pathname === "/reset-password") {
+    const params = new URLSearchParams(window.location.search);
+    const tokenHash = params.get("token_hash");
+    return <ResetPasswordScreen tokenHash={tokenHash} />;
+  }
+
   if (loading) return <LoadingSpinner />;
   return (
     <SettingsProvider>

@@ -1,16 +1,26 @@
 """
-Auth routes — Canvas API Key login, session management.
+Auth routes — username/password login (Supabase Auth) + one-time Canvas key.
 
-POST /auth/apikey    — validate Canvas key, upsert user, return JWT
-GET  /auth/me        — return current user from JWT
-POST /auth/refresh   — silent JWT renewal using refresh token
-POST /auth/logout    — delete session from DB
+POST /auth/signup           — create Supabase Auth user + link Canvas key, return JWT
+POST /auth/login            — email + password (Supabase Auth), return JWT
+POST /auth/forgot-password  — email a password-reset link
+POST /auth/reset-password   — consume the reset link's token, set new password
+GET  /auth/me               — return current user from JWT (incl. masked Canvas key info)
+PATCH /auth/canvas-key      — replace the stored Canvas API key
+POST /auth/refresh          — silent JWT renewal using refresh token
+POST /auth/logout           — delete session from DB
+
+POST /auth/apikey           — LEGACY: Canvas-key-as-login. Kept only so any
+                               session started before the password-auth cutover
+                               keeps working; not used by the current frontend.
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, Request, Depends
-from pydantic import BaseModel
+from supabase_auth.errors import AuthApiError
+from pydantic import BaseModel, EmailStr
 
 from auth.canvas import validate_canvas_api_key
 from auth.encrypt import encrypt_token
@@ -20,9 +30,15 @@ from db.client import get_supabase
 from db.seed_config import seed_school_config
 from config import config
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 REFRESH_COOKIE = "lumina_refresh"
+
+
+def _frontend_url() -> str:
+    return config.FRONTEND_URL or (config.ALLOWED_ORIGINS[0] if config.ALLOWED_ORIGINS else "")
 
 
 # ------------------------------------------------------------------ #
@@ -30,6 +46,32 @@ REFRESH_COOKIE = "lumina_refresh"
 # ------------------------------------------------------------------ #
 
 class ApiKeyLoginRequest(BaseModel):
+    canvas_url: str
+    api_key: str
+
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str
+    canvas_url: str
+    api_key: str
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token_hash: str
+    new_password: str
+
+
+class CanvasKeyRequest(BaseModel):
     canvas_url: str
     api_key: str
 
@@ -110,27 +152,188 @@ async def login_with_api_key(body: ApiKeyLoginRequest, response: Response, backg
         on_conflict="canvas_user_id,school_id",
     ).execute()
     user = user_result.data[0]
+
+    return _issue_lumina_session(sb, user, canvas_role, school_id, "api_key", response, background_tasks)
+
+
+# ------------------------------------------------------------------ #
+# Password auth (Supabase Auth) — signup / login / reset               #
+# ------------------------------------------------------------------ #
+
+@router.post("/signup", response_model=AuthResponse)
+async def signup(body: SignupRequest, response: Response, background_tasks: BackgroundTasks):
+    """
+    One-time account creation: Supabase Auth identity (email + password)
+    + Canvas API key, captured together so the key never needs pasting again.
+    """
+    canvas_url = body.canvas_url.rstrip("/")
+    sb = get_supabase()
+
+    # 1. Validate the Canvas key up front — no point creating an auth user
+    #    for a key that doesn't work.
+    try:
+        canvas_user = await validate_canvas_api_key(canvas_url, body.api_key)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    # 2. Create the Supabase Auth user
+    try:
+        auth_result = sb.auth.admin.create_user({
+            "email": body.email,
+            "password": body.password,
+            "email_confirm": True,  # no email confirmation loop for a pilot cohort
+        })
+    except AuthApiError as e:
+        raise HTTPException(status_code=409 if "already" in str(e).lower() else 400, detail=str(e))
+    auth_user_id = auth_result.user.id
+
+    # 3. Upsert school + role
+    school_result = sb.table("schools").upsert(
+        {"name": canvas_url, "canvas_url": canvas_url}, on_conflict="canvas_url",
+    ).execute()
+    school_id = school_result.data[0]["id"]
+    seed_school_config(school_id)
+    canvas_role = await _get_canvas_role(canvas_url, body.api_key)
+
+    # 4. Upsert the Lumina user profile, linked to the auth identity
+    user_result = sb.table("users").upsert(
+        {
+            "canvas_user_id":          canvas_user["canvas_user_id"],
+            "school_id":               school_id,
+            "auth_user_id":            auth_user_id,
+            "name":                    canvas_user["name"],
+            "email":                   body.email,
+            "avatar_url":              canvas_user["avatar_url"],
+            "canvas_role":             canvas_role,
+            "auth_method":             "password",
+            "canvas_access_token":     encrypt_token(body.api_key),
+            "canvas_key_last4":        body.api_key[-4:],
+            "canvas_token_expires_at": None,
+            "last_active_at":          datetime.now(timezone.utc).isoformat(),
+        },
+        on_conflict="canvas_user_id,school_id",
+    ).execute()
+    user = user_result.data[0]
+
+    return _issue_lumina_session(sb, user, canvas_role, school_id, "password", response, background_tasks)
+
+
+@router.post("/login", response_model=AuthResponse)
+async def login(body: LoginRequest, response: Response, background_tasks: BackgroundTasks):
+    """Email + password login via Supabase Auth."""
+    sb = get_supabase()
+
+    try:
+        result = sb.auth.sign_in_with_password({"email": body.email, "password": body.password})
+    except AuthApiError:
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+
+    user_result = sb.table("users").select("*").eq("auth_user_id", result.user.id).execute()
+    if not user_result.data:
+        raise HTTPException(status_code=404, detail="No Lumina account found for this login")
+    user = user_result.data[0]
+
+    return _issue_lumina_session(
+        sb, user, user["canvas_role"], user["school_id"], "password", response, background_tasks,
+    )
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest):
+    """
+    Email a password-reset link. Always returns a generic success message —
+    never reveals whether the email has an account, to avoid enumeration.
+    """
+    sb = get_supabase()
+    try:
+        link_result = sb.auth.admin.generate_link({
+            "type": "recovery",
+            "email": body.email,
+            "options": {"redirect_to": f"{_frontend_url()}/reset-password"},
+        })
+        token_hash = link_result.properties.hashed_token
+        reset_url = f"{_frontend_url()}/reset-password?token_hash={token_hash}&type=recovery"
+
+        from providers.email import get_email_provider
+        from providers.email.base import EmailMessage
+        await get_email_provider().send(EmailMessage(
+            to=body.email,
+            subject="Reset your Lumina password",
+            html=(
+                f"<p>Someone requested a password reset for your Lumina account.</p>"
+                f'<p><a href="{reset_url}">Reset your password</a></p>'
+                f"<p>If you didn't request this, you can ignore this email.</p>"
+            ),
+        ))
+    except Exception as e:
+        # Covers "user not found" (AuthApiError) and email-send failures alike —
+        # logged for debugging, never surfaced to the caller.
+        logger.info("forgot-password request for %s did not send a link: %s", body.email, e)
+
+    return {"message": "If an account exists for that email, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest):
+    """Consume the token from the reset-link email and set a new password."""
+    sb = get_supabase()
+    try:
+        verify_result = sb.auth.verify_otp({"token_hash": body.token_hash, "type": "recovery"})
+    except AuthApiError:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired")
+
+    sb.auth.admin.update_user_by_id(verify_result.user.id, {"password": body.new_password})
+    return {"message": "Password updated — you can now sign in with your new password"}
+
+
+# ------------------------------------------------------------------ #
+# Canvas key management                                                #
+# ------------------------------------------------------------------ #
+
+@router.patch("/canvas-key")
+async def update_canvas_key(body: CanvasKeyRequest, current_user: dict = Depends(get_current_user)):
+    """Replace the stored Canvas API key (e.g. after regenerating it in Canvas)."""
+    canvas_url = body.canvas_url.rstrip("/")
+    try:
+        await validate_canvas_api_key(canvas_url, body.api_key)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    sb = get_supabase()
+    sb.table("users").update({
+        "canvas_access_token": encrypt_token(body.api_key),
+        "canvas_key_last4":    body.api_key[-4:],
+        "canvas_token_expires_at": None,
+    }).eq("id", current_user["sub"]).execute()
+
+    return {"message": "Canvas key updated", "canvas_key_last4": body.api_key[-4:]}
+
+
+# ------------------------------------------------------------------ #
+# Session helpers                                                      #
+# ------------------------------------------------------------------ #
+
+def _issue_lumina_session(
+    sb, user: dict, canvas_role: str, school_id: str, auth_method: str,
+    response: Response, background_tasks: BackgroundTasks,
+) -> AuthResponse:
+    """Shared tail of every login path: issue JWT + refresh, trigger first-login sync."""
     user_id = user["id"]
 
-    # 6. Issue tokens
     access_token = create_access_token(user_id, canvas_role, school_id)
     raw_refresh, hashed_refresh = generate_refresh_token()
 
-    # 7. Store refresh token
     sb.table("sessions").insert({
-        "user_id":      user_id,
+        "user_id":       user_id,
         "refresh_token": hashed_refresh,
-        "auth_method":  "api_key",
-        "expires_at":   (
-            datetime.now(timezone.utc) +
-            timedelta(days=config.REFRESH_EXPIRE_DAYS)
+        "auth_method":   auth_method,
+        "expires_at":    (
+            datetime.now(timezone.utc) + timedelta(days=config.REFRESH_EXPIRE_DAYS)
         ).isoformat(),
     }).execute()
 
-    # 8. Set refresh cookie
     _set_refresh_cookie(response, raw_refresh)
 
-    # 9. Auto-sync + index on first login (no prior enrollments)
     existing_enrollments = sb.table("enrollments").select("course_id").eq(
         "user_id", user_id
     ).limit(1).execute()
@@ -143,23 +346,25 @@ async def login_with_api_key(body: ApiKeyLoginRequest, response: Response, backg
     return AuthResponse(
         access_token=access_token,
         user={
-            "id":          user_id,
-            "name":        user["name"],
-            "email":       user["email"],
-            "avatar_url":  user["avatar_url"],
-            "canvas_role": canvas_role,
-            "school_id":   school_id,
-            "first_login": is_first_login,
+            "id":               user_id,
+            "name":             user["name"],
+            "email":            user["email"],
+            "avatar_url":       user["avatar_url"],
+            "canvas_role":      canvas_role,
+            "school_id":        school_id,
+            "first_login":      is_first_login,
+            "canvas_key_last4": user.get("canvas_key_last4"),
         },
     )
 
 
 @router.get("/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
-    """Return current user profile from JWT."""
+    """Return current user profile from JWT, including masked Canvas key info."""
     sb = get_supabase()
     result = sb.table("users").select(
-        "id, name, email, avatar_url, canvas_role, school_id, last_active_at"
+        "id, name, email, avatar_url, canvas_role, school_id, last_active_at, "
+        "canvas_key_last4, canvas_token_expires_at"
     ).eq("id", current_user["sub"]).single().execute()
 
     if not result.data:

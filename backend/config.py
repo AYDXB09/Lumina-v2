@@ -82,6 +82,9 @@ class Config:
     ALLOWED_ORIGINS: list[str] = os.getenv(
         "ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174"
     ).split(",")
+    # First allowed origin doubles as the frontend URL for building email links
+    # (password reset). Override explicitly if the two ever diverge.
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "").rstrip("/")
 
     # ------------------------------------------------------------------ #
     # Legacy (kept during ChromaDB → pgvector migration)                  #

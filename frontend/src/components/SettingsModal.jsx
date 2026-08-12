@@ -967,11 +967,21 @@ export default function SettingsModal({ onClose }) {
                   <div>
                     <div style={s.accountName}>{user.name}</div>
                     <div style={s.accountEmail}>{user.email || "Canvas student"}</div>
-                    <div style={s.accountBadge}>Connected via Canvas API Key</div>
+                    <div style={s.accountBadge}>● Canvas connected</div>
                   </div>
                 </div>
               )}
-              <Row label="Canvas connection" hint="To change your Canvas server or API key, sign out and log in again.">
+            </Section>
+
+            <Section title="Canvas API key">
+              <CanvasKeyRow user={user} />
+            </Section>
+
+            <Section title="Password & session">
+              <Row label="Password" hint="We'll email a reset link — you set a new one there.">
+                <ResetPasswordButton email={user?.email} />
+              </Row>
+              <Row label={`Signed in as ${user?.email ?? ""}`} hint="This device only">
                 <button style={s.dangerBtn} onClick={logout}>Sign out</button>
               </Row>
             </Section>
@@ -987,6 +997,111 @@ export default function SettingsModal({ onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * CanvasKeyRow — masked API key with an inline edit affordance attached to
+ * the field itself (Stripe/GitHub/OpenAI secret-key pattern), rather than a
+ * separate "replace key" section elsewhere on the page.
+ */
+function CanvasKeyRow({ user }) {
+  const { updateCanvasKey } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [canvasUrl, setCanvasUrl] = useState(import.meta.env.VITE_CANVAS_URL ?? "https://dwight.instructure.com");
+  const [apiKey, setApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const last4 = user?.canvas_key_last4;
+  const expiresAt = user?.canvas_token_expires_at;
+
+  const handleSave = async () => {
+    setError(null);
+    setSaving(true);
+    try {
+      await updateCanvasKey(canvasUrl.trim(), apiKey.trim());
+      setApiKey("");
+      setEditing(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={s.keyField}>
+        <div style={{ flex: 1 }}>
+          <div style={s.keyMono}>
+            {last4 ? `•••••••••••• ${last4}` : "Not set"}
+          </div>
+          <div style={s.rowHint}>
+            {expiresAt ? `Expires ${new Date(expiresAt).toLocaleDateString()}` : "No expiry set"}
+          </div>
+        </div>
+        <button
+          style={s.keyEditBtn}
+          onClick={() => setEditing(v => !v)}
+          title="Edit key"
+          aria-label="Edit Canvas API key"
+        >
+          ✎
+        </button>
+      </div>
+
+      {editing && (
+        <div style={s.keyExpand}>
+          <label style={s.keyExpandLabel}>New Canvas API key — replaces the key above</label>
+          <input
+            style={s.input}
+            type="url"
+            value={canvasUrl}
+            onChange={(e) => setCanvasUrl(e.target.value)}
+            placeholder="Canvas URL"
+          />
+          <input
+            style={s.input}
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="Paste new token from Canvas → Account → Settings"
+            autoComplete="off"
+          />
+          {error && <p style={s.keyError}>{error}</p>}
+          <div style={s.keyExpandActions}>
+            <button style={s.ghostBtn} onClick={() => { setEditing(false); setError(null); }}>Cancel</button>
+            <button style={s.primaryBtn} onClick={handleSave} disabled={saving || !apiKey.trim()}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** ResetPasswordButton — triggers the same email-link flow as "Forgot password?" on sign-in. */
+function ResetPasswordButton({ email }) {
+  const { forgotPassword } = useAuth();
+  const [state, setState] = useState("idle"); // idle | sending | sent
+
+  const handleClick = async () => {
+    if (!email) return;
+    setState("sending");
+    try {
+      await forgotPassword(email);
+    } finally {
+      setState("sent");
+    }
+  };
+
+  if (state === "sent") return <span style={s.rowHint}>Check your email for a reset link</span>;
+  return (
+    <button style={s.ghostBtn} onClick={handleClick} disabled={state === "sending"}>
+      {state === "sending" ? "Sending…" : "Reset password"}
+    </button>
   );
 }
 
@@ -1280,6 +1395,31 @@ const s = {
     border: "1px solid rgba(185,28,28,0.2)", borderRadius: "9999px",
     fontSize: "13px", fontWeight: "600", cursor: "pointer", transition: "opacity 0.15s",
     whiteSpace: "nowrap",
+  },
+  keyField: {
+    display: "flex", alignItems: "center", gap: "8px",
+    background: "var(--color-bg)", border: "1px solid var(--color-border)",
+    borderRadius: "10px", padding: "10px 10px 10px 14px",
+  },
+  keyMono: {
+    fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
+    fontSize: "14px", letterSpacing: "0.04em", color: "var(--color-text)",
+  },
+  keyEditBtn: {
+    width: "28px", height: "28px", borderRadius: "8px", flexShrink: 0,
+    background: "var(--color-surface)", border: "1px solid var(--color-border)",
+    color: "var(--color-text-muted)", cursor: "pointer", fontSize: "13px",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  },
+  keyExpand: {
+    background: "var(--color-surface)", border: "1px dashed var(--color-border)",
+    borderRadius: "10px", padding: "14px", marginTop: "10px",
+    display: "flex", flexDirection: "column", gap: "10px",
+  },
+  keyExpandLabel: { fontSize: "12px", fontWeight: "650", color: "var(--color-text-muted)" },
+  keyExpandActions: { display: "flex", gap: "8px", justifyContent: "flex-end" },
+  keyError: {
+    color: "var(--color-error)", fontSize: "12.5px", margin: 0,
   },
 
   // Materials
