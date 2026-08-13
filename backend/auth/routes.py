@@ -251,34 +251,29 @@ async def login(body: LoginRequest, response: Response, background_tasks: Backgr
 @router.post("/forgot-password")
 async def forgot_password(body: ForgotPasswordRequest):
     """
-    Email a password-reset link. Always returns a generic success message —
-    never reveals whether the email has an account, to avoid enumeration.
+    Email a password-reset link via Supabase Auth's own built-in mailer.
+    Always returns a generic success message — never reveals whether the
+    email has an account, to avoid enumeration.
+
+    NOTE: previously this generated the link ourselves (admin.generate_link)
+    and sent it via a custom EmailProvider (Resend / Gmail SMTP). Switched
+    to Supabase's native reset_password_for_email because it sends over
+    HTTPS (Supabase's API), not raw SMTP — Railway filters outbound SMTP
+    (port 587) entirely, which made both the Gmail and eventual-Resend paths
+    hang/fail from this host. providers/email/ (Resend + Gmail SMTP) is kept
+    for other transactional email (parent consent, reports) that isn't
+    Auth-flow-shaped and can't route through Supabase's mailer.
     """
     sb = get_supabase()
     try:
-        link_result = sb.auth.admin.generate_link({
-            "type": "recovery",
-            "email": body.email,
-            "options": {"redirect_to": f"{_frontend_url()}/reset-password"},
-        })
-        token_hash = link_result.properties.hashed_token
-        reset_url = f"{_frontend_url()}/reset-password?token_hash={token_hash}&type=recovery"
-
-        from providers.email import get_email_provider
-        from providers.email.base import EmailMessage
-        await get_email_provider().send(EmailMessage(
-            to=body.email,
-            subject="Reset your Lumina password",
-            html=(
-                f"<p>Someone requested a password reset for your Lumina account.</p>"
-                f'<p><a href="{reset_url}">Reset your password</a></p>'
-                f"<p>If you didn't request this, you can ignore this email.</p>"
-            ),
-        ))
+        sb.auth.reset_password_for_email(
+            body.email,
+            {"redirect_to": f"{_frontend_url()}/reset-password"},
+        )
     except Exception:
-        # Covers "user not found" (AuthApiError) and email-send failures alike —
-        # logged with full traceback for debugging, never surfaced to the caller
-        # (would otherwise leak whether an email has an account).
+        # Covers "user not found" (AuthApiError) and send failures alike —
+        # logged with full traceback for debugging, never surfaced to the
+        # caller (would otherwise leak whether an email has an account).
         logger.exception("forgot-password request for %s did not send a link", body.email)
 
     return {"message": "If an account exists for that email, a reset link has been sent."}
