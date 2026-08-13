@@ -91,9 +91,17 @@ export function AuthProvider({ children }) {
     await _authPost("/auth/forgot-password", { email });
   }, [_authPost]);
 
-  /** Consume the token from the reset-link email and set a new password. */
-  const resetPassword = useCallback(async (tokenHash, newPassword) => {
-    await _authPost("/auth/reset-password", { token_hash: tokenHash, new_password: newPassword });
+  /**
+   * Consume the token from the reset-link email and set a new password.
+   * Exactly one of token.tokenHash / token.accessToken is set, depending
+   * on which shape Supabase's recovery link used (see ResetPasswordScreen).
+   */
+  const resetPassword = useCallback(async ({ tokenHash, accessToken }, newPassword) => {
+    await _authPost("/auth/reset-password", {
+      token_hash: tokenHash || null,
+      access_token: accessToken || null,
+      new_password: newPassword,
+    });
   }, [_authPost]);
 
   // ---------------------------------------------------------------- //

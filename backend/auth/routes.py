@@ -67,7 +67,10 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    token_hash: str
+    # Exactly one of these is set, depending on which flow Supabase's
+    # recovery link used -- see reset_password() below for why both exist.
+    token_hash: str | None = None
+    access_token: str | None = None
     new_password: str
 
 
@@ -281,14 +284,33 @@ async def forgot_password(body: ForgotPasswordRequest):
 
 @router.post("/reset-password")
 async def reset_password(body: ResetPasswordRequest):
-    """Consume the token from the reset-link email and set a new password."""
+    """
+    Consume the token from the reset-link email and set a new password.
+
+    Supabase's recovery link can land here two different ways depending on
+    the project's Auth flow setting:
+      - token_hash: newer OTP-style verify -- consumed via verify_otp().
+      - access_token: legacy verify flow -- Supabase's own /auth/v1/verify
+        endpoint already validated the token server-side and redirected
+        here with an already-issued session in the URL hash
+        (#access_token=...&type=recovery), no token_hash at all. This is
+        what this project actually uses (confirmed 2026-08-13 against a
+        real email link) -- resolved via get_user() instead of verify_otp().
+    """
     sb = get_supabase()
     try:
-        verify_result = sb.auth.verify_otp({"token_hash": body.token_hash, "type": "recovery"})
+        if body.token_hash:
+            verify_result = sb.auth.verify_otp({"token_hash": body.token_hash, "type": "recovery"})
+            user_id = verify_result.user.id
+        elif body.access_token:
+            user_result = sb.auth.get_user(body.access_token)
+            user_id = user_result.user.id
+        else:
+            raise HTTPException(status_code=400, detail="Reset link is missing its token")
     except AuthApiError:
         raise HTTPException(status_code=400, detail="This reset link is invalid or has expired")
 
-    sb.auth.admin.update_user_by_id(verify_result.user.id, {"password": body.new_password})
+    sb.auth.admin.update_user_by_id(user_id, {"password": body.new_password})
     return {"message": "Password updated — you can now sign in with your new password"}
 
 

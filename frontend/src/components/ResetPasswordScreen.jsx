@@ -1,26 +1,30 @@
 /**
- * ResetPasswordScreen — lands here from the password-reset email link
- * (?token_hash=...&type=recovery). Rendered by App.jsx outside the normal
- * auth gate, since the user isn't signed in yet at this point.
+ * ResetPasswordScreen — lands here from the password-reset email link.
+ * Supabase's link redirects here with EITHER #token_hash=...&type=recovery
+ * OR #access_token=...&type=recovery in the URL hash, depending on the
+ * project's Auth flow (see App.jsx for detail) -- exactly one is set.
+ * Rendered by App.jsx outside the normal auth gate, since the user isn't
+ * signed in yet at this point.
  */
 
 import React, { useState } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import LuminaLogo from "./LuminaLogo.jsx";
 
-export default function ResetPasswordScreen({ tokenHash, linkError }) {
+export default function ResetPasswordScreen({ tokenHash, accessToken, linkError }) {
   const { resetPassword } = useAuth();
+  const hasToken = Boolean(tokenHash || accessToken);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(
-    linkError || (!tokenHash ? "This reset link is missing its token — request a new one from Settings." : null)
+    linkError || (!hasToken ? "This reset link is missing its token — request a new one from Settings." : null)
   );
   const [done, setDone] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!tokenHash) return; // link itself is bad -- nothing to submit against
+    if (!hasToken) return; // link itself is bad -- nothing to submit against
     setError(null);
     if (password !== confirm) {
       setError("Passwords don't match");
@@ -32,7 +36,7 @@ export default function ResetPasswordScreen({ tokenHash, linkError }) {
     }
     setLoading(true);
     try {
-      await resetPassword(tokenHash, password);
+      await resetPassword({ tokenHash, accessToken }, password);
       setDone(true);
     } catch (err) {
       setError(err.message);
@@ -83,7 +87,7 @@ export default function ResetPasswordScreen({ tokenHash, linkError }) {
 
             {error && <p style={styles.error}>{error}</p>}
 
-            <button type="submit" style={styles.button} disabled={loading || !tokenHash}>
+            <button type="submit" style={styles.button} disabled={loading || !hasToken}>
               {loading ? "Updating…" : "Update password"}
             </button>
           </form>

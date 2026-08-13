@@ -158,16 +158,23 @@ export default function App() {
   // Reset-password link lands here regardless of auth state — the user
   // isn't signed in yet at this point.
   if (window.location.pathname === "/reset-password") {
-    // Supabase's recovery email link puts token_hash/type in the URL hash
-    // fragment (#token_hash=...&type=recovery), not the query string --
-    // confirmed by the earlier redirect landing on ".../dashboard#error=
-    // access_denied&..." when the Site URL wasn't set correctly. Query
-    // string is checked too as a fallback in case that ever changes.
+    // Supabase's recovery link lands here in one of two shapes depending on
+    // the project's Auth flow, both via the URL hash fragment not the query
+    // string (confirmed by the earlier ".../dashboard#error=access_denied&
+    // ..." redirect when Site URL was misconfigured):
+    //   - newer OTP-style verify: #token_hash=...&type=recovery
+    //   - legacy verify flow (what this project actually uses, confirmed
+    //     2026-08-13 against a real email link -- Supabase's own
+    //     /auth/v1/verify endpoint validates server-side first, then
+    //     redirects here with a session already issued):
+    //     #access_token=...&refresh_token=...&type=recovery
+    // Query string checked too as a fallback in case that ever changes.
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const searchParams = new URLSearchParams(window.location.search);
     const tokenHash = hashParams.get("token_hash") ?? searchParams.get("token_hash");
+    const accessToken = hashParams.get("access_token") ?? searchParams.get("access_token");
     const hashError = hashParams.get("error_description") ?? searchParams.get("error_description");
-    return <ResetPasswordScreen tokenHash={tokenHash} linkError={hashError} />;
+    return <ResetPasswordScreen tokenHash={tokenHash} accessToken={accessToken} linkError={hashError} />;
   }
 
   if (loading) return <LoadingSpinner />;
