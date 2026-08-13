@@ -18,6 +18,10 @@ import RightPanel from "./components/RightPanel.jsx";
 import SettingsModal from "./components/SettingsModal.jsx";
 import { fetchCourses, syncCourses } from "./api.js";
 
+// Course auto-selected on first load, by exact Canvas course name match.
+// Falls back to the first course in the list if this one isn't enrolled.
+const DEFAULT_COURSE_NAME = "IB DP Mathematics: Analysis and Approaches HL I 2025-26";
+
 function LoadingSpinner() {
   return (
     <div style={{
@@ -54,9 +58,11 @@ function MainLayout() {
       const data = await fetchCourses(authFetch);
       const list = data.courses ?? [];
       setCourses(list);
-      // Auto-select first course if nothing is selected
+      // Auto-select first course if nothing is selected, preferring the
+      // default course below over whatever Canvas happens to list first.
       if (list.length > 0) {
-        setSelectedCourse(prev => prev ?? list[0]);
+        const preferred = list.find(c => c.name === DEFAULT_COURSE_NAME) ?? list[0];
+        setSelectedCourse(prev => prev ?? preferred);
       } else {
         handleSync();
       }
