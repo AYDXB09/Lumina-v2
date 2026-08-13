@@ -158,9 +158,16 @@ export default function App() {
   // Reset-password link lands here regardless of auth state — the user
   // isn't signed in yet at this point.
   if (window.location.pathname === "/reset-password") {
-    const params = new URLSearchParams(window.location.search);
-    const tokenHash = params.get("token_hash");
-    return <ResetPasswordScreen tokenHash={tokenHash} />;
+    // Supabase's recovery email link puts token_hash/type in the URL hash
+    // fragment (#token_hash=...&type=recovery), not the query string --
+    // confirmed by the earlier redirect landing on ".../dashboard#error=
+    // access_denied&..." when the Site URL wasn't set correctly. Query
+    // string is checked too as a fallback in case that ever changes.
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const searchParams = new URLSearchParams(window.location.search);
+    const tokenHash = hashParams.get("token_hash") ?? searchParams.get("token_hash");
+    const hashError = hashParams.get("error_description") ?? searchParams.get("error_description");
+    return <ResetPasswordScreen tokenHash={tokenHash} linkError={hashError} />;
   }
 
   if (loading) return <LoadingSpinner />;

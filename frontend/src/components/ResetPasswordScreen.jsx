@@ -8,16 +8,19 @@ import React, { useState } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import LuminaLogo from "./LuminaLogo.jsx";
 
-export default function ResetPasswordScreen({ tokenHash }) {
+export default function ResetPasswordScreen({ tokenHash, linkError }) {
   const { resetPassword } = useAuth();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(
+    linkError || (!tokenHash ? "This reset link is missing its token — request a new one from Settings." : null)
+  );
   const [done, setDone] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!tokenHash) return; // link itself is bad -- nothing to submit against
     setError(null);
     if (password !== confirm) {
       setError("Passwords don't match");
@@ -80,7 +83,7 @@ export default function ResetPasswordScreen({ tokenHash }) {
 
             {error && <p style={styles.error}>{error}</p>}
 
-            <button type="submit" style={styles.button} disabled={loading}>
+            <button type="submit" style={styles.button} disabled={loading || !tokenHash}>
               {loading ? "Updating…" : "Update password"}
             </button>
           </form>

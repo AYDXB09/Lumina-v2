@@ -57,7 +57,13 @@ export function AuthProvider({ children }) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail ?? "Request failed");
+      // FastAPI validation errors (422) return `detail` as an array of
+      // {msg, loc, ...} objects, not a string -- stringifying that array
+      // directly used to render as literal "[object Object]" in the UI.
+      const detail = Array.isArray(err.detail)
+        ? err.detail.map((d) => d.msg ?? JSON.stringify(d)).join("; ")
+        : err.detail;
+      throw new Error(detail ?? "Request failed");
     }
     return res.json();
   }, []);
