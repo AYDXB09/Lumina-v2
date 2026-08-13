@@ -26,7 +26,7 @@ from auth.canvas import validate_canvas_api_key
 from auth.encrypt import encrypt_token
 from auth.jwt_utils import create_access_token, generate_refresh_token, hash_refresh_token
 from auth.middleware import get_current_user
-from db.client import get_supabase
+from db.client import get_supabase, new_auth_client
 from db.seed_config import seed_school_config
 from config import config
 
@@ -234,13 +234,16 @@ async def signup(body: SignupRequest, response: Response, background_tasks: Back
 @router.post("/login", response_model=AuthResponse)
 async def login(body: LoginRequest, response: Response, background_tasks: BackgroundTasks):
     """Email + password login via Supabase Auth."""
-    sb = get_supabase()
-
+    # Credential check happens on a throwaway client -- see new_auth_client()
+    # for why this must never run on the shared service-role singleton.
     try:
-        result = sb.auth.sign_in_with_password({"email": body.email, "password": body.password})
+        result = new_auth_client().auth.sign_in_with_password(
+            {"email": body.email, "password": body.password}
+        )
     except AuthApiError:
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
+    sb = get_supabase()
     user_result = sb.table("users").select("*").eq("auth_user_id", result.user.id).execute()
     if not user_result.data:
         raise HTTPException(status_code=404, detail="No Lumina account found for this login")
@@ -297,18 +300,27 @@ async def reset_password(body: ResetPasswordRequest):
         what this project actually uses (confirmed 2026-08-13 against a
         real email link) -- resolved via get_user() instead of verify_otp().
     """
-    sb = get_supabase()
+    # Both branches below establish/read an end-user session -- run on a
+    # throwaway client, never the shared service-role singleton (see
+    # new_auth_client()). get_user(jwt) is a one-off lookup and probably
+    # wouldn't mutate get_supabase()'s session, but verify_otp() definitely
+    # would (it's a full sign-in) -- using a throwaway client for both
+    # rather than relying on which gotrue-py calls happen to be "safe".
     try:
         if body.token_hash:
-            verify_result = sb.auth.verify_otp({"token_hash": body.token_hash, "type": "recovery"})
+            verify_result = new_auth_client().auth.verify_otp(
+                {"token_hash": body.token_hash, "type": "recovery"}
+            )
             user_id = verify_result.user.id
         elif body.access_token:
-            user_result = sb.auth.get_user(body.access_token)
+            user_result = new_auth_client().auth.get_user(body.access_token)
             user_id = user_result.user.id
         else:
             raise HTTPException(status_code=400, detail="Reset link is missing its token")
     except AuthApiError:
         raise HTTPException(status_code=400, detail="This reset link is invalid or has expired")
+
+    sb = get_supabase()
 
     sb.auth.admin.update_user_by_id(user_id, {"password": body.new_password})
     return {"message": "Password updated — you can now sign in with your new password"}
