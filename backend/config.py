@@ -64,10 +64,16 @@ class Config:
     GEMINI_EMBEDDING_DIMS: int  = int(os.getenv("GEMINI_EMBEDDING_DIMS", "768"))
 
     # ------------------------------------------------------------------ #
-    # Email — Resend                                                       #
+    # Email — Resend (preferred once a verified sending domain exists)     #
     # ------------------------------------------------------------------ #
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
     EMAIL_FROM: str     = os.getenv("EMAIL_FROM", "Lumina <noreply@lumina.school>")
+
+    # ------------------------------------------------------------------ #
+    # Email — Gmail SMTP (interim, no Resend account/domain needed)        #
+    # ------------------------------------------------------------------ #
+    GMAIL_ADDRESS: str      = os.getenv("GMAIL_ADDRESS", "")
+    GMAIL_APP_PASSWORD: str = os.getenv("GMAIL_APP_PASSWORD", "")
 
     # ------------------------------------------------------------------ #
     # Canvas                                                               #

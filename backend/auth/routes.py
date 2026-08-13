@@ -187,33 +187,43 @@ async def signup(body: SignupRequest, response: Response, background_tasks: Back
         raise HTTPException(status_code=409 if "already" in str(e).lower() else 400, detail=str(e))
     auth_user_id = auth_result.user.id
 
-    # 3. Upsert school + role
-    school_result = sb.table("schools").upsert(
-        {"name": canvas_url, "canvas_url": canvas_url}, on_conflict="canvas_url",
-    ).execute()
-    school_id = school_result.data[0]["id"]
-    seed_school_config(school_id)
-    canvas_role = await _get_canvas_role(canvas_url, body.api_key)
+    # 3-4. Upsert school + role + Lumina user profile. If anything past this point
+    #      fails, the auth user from step 2 would otherwise be orphaned (a real
+    #      account with no profile row, blocking retry with "already registered") —
+    #      so any exception here rolls it back before re-raising.
+    try:
+        school_result = sb.table("schools").upsert(
+            {"name": canvas_url, "canvas_url": canvas_url}, on_conflict="canvas_url",
+        ).execute()
+        school_id = school_result.data[0]["id"]
+        seed_school_config(school_id)
+        canvas_role = await _get_canvas_role(canvas_url, body.api_key)
 
-    # 4. Upsert the Lumina user profile, linked to the auth identity
-    user_result = sb.table("users").upsert(
-        {
-            "canvas_user_id":          canvas_user["canvas_user_id"],
-            "school_id":               school_id,
-            "auth_user_id":            auth_user_id,
-            "name":                    canvas_user["name"],
-            "email":                   body.email,
-            "avatar_url":              canvas_user["avatar_url"],
-            "canvas_role":             canvas_role,
-            "auth_method":             "password",
-            "canvas_access_token":     encrypt_token(body.api_key),
-            "canvas_key_last4":        body.api_key[-4:],
-            "canvas_token_expires_at": None,
-            "last_active_at":          datetime.now(timezone.utc).isoformat(),
-        },
-        on_conflict="canvas_user_id,school_id",
-    ).execute()
-    user = user_result.data[0]
+        user_result = sb.table("users").upsert(
+            {
+                "canvas_user_id":          canvas_user["canvas_user_id"],
+                "school_id":               school_id,
+                "auth_user_id":            auth_user_id,
+                "name":                    canvas_user["name"],
+                "email":                   body.email,
+                "avatar_url":              canvas_user["avatar_url"],
+                "canvas_role":             canvas_role,
+                "auth_method":             "password",
+                "canvas_access_token":     encrypt_token(body.api_key),
+                "canvas_key_last4":        body.api_key[-4:],
+                "canvas_token_expires_at": None,
+                "last_active_at":          datetime.now(timezone.utc).isoformat(),
+            },
+            on_conflict="canvas_user_id,school_id",
+        ).execute()
+        user = user_result.data[0]
+    except Exception:
+        logger.exception("Signup failed after auth user creation — rolling back auth user %s", auth_user_id)
+        try:
+            sb.auth.admin.delete_user(auth_user_id)
+        except Exception:
+            logger.exception("Failed to roll back orphaned auth user %s — needs manual cleanup", auth_user_id)
+        raise
 
     return _issue_lumina_session(sb, user, canvas_role, school_id, "password", response, background_tasks)
 
