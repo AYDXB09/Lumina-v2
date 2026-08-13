@@ -275,10 +275,11 @@ async def forgot_password(body: ForgotPasswordRequest):
                 f"<p>If you didn't request this, you can ignore this email.</p>"
             ),
         ))
-    except Exception as e:
+    except Exception:
         # Covers "user not found" (AuthApiError) and email-send failures alike —
-        # logged for debugging, never surfaced to the caller.
-        logger.info("forgot-password request for %s did not send a link: %s", body.email, e)
+        # logged with full traceback for debugging, never surfaced to the caller
+        # (would otherwise leak whether an email has an account).
+        logger.exception("forgot-password request for %s did not send a link", body.email)
 
     return {"message": "If an account exists for that email, a reset link has been sent."}
 
