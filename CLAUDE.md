@@ -24,7 +24,7 @@ Lumina is for students at 11pm who are stuck and have no teacher to ask.
 - **Old hackathon repo:** /Users/ny/Downloads/CursorProjects/School-AI/school-ai/ — DO NOT TOUCH
 
 ### Built in v2 (this repo)
-- Canvas API Key auth (JWT + httpOnly refresh cookie, sessions in Supabase)
+- Username/password auth via Supabase Auth (JWT + httpOnly refresh cookie, sessions in Supabase) + one-time Canvas API key captured at signup, masked in Settings thereafter — see Authentication below
 - Provider abstraction layer: AI (K2 / OpenRouter / Anthropic / NVIDIA NIM / Groq / Gemini), Storage (Supabase), Email (Resend)
 - Canvas sync: courses, modules, pages, assignments, announcements → Supabase
 - pgvector RAG: Gemini embedding API `gemini-embedding-001` (768-dim), HNSW index — no local model
@@ -161,6 +161,11 @@ Railway's live deployment was stuck on an old commit (`bec34c0`) while `main` ha
 
 **Diagnostic method that worked:** compare feature-specific strings (e.g. a CSS class name or API route path unique to a recent commit) against the live JS bundle (`curl` the deployed `/assets/index-*.js` and `grep` for the string) — this pinpoints exactly which commit is actually live without needing Railway log access.
 
+### Known incident: auto-deploy fully dead for ~4 days, not just stalled (2026-08-13, resolved)
+Different failure mode from the incident above, worth distinguishing: this time **no commit ever appeared in the Deployments history** — not pending, not skipped, nothing — for ~4 days across multiple pushes (including trivial empty-commit retries, which had worked for the earlier stall). A manual Redeploy still succeeded, proving the build/deploy pipeline itself was healthy — it just rebuilt the same stale commit rather than pulling anything new, since Redeploy replays a specific existing deployment rather than fetching current HEAD. Toggling "Auto deploys when pushed to GitHub" off/on (Settings → Source) also did nothing. Checked GitHub's side too: `github.com/settings/installations` → Railway App → Configure (needs a sudo-mode email re-verification to view) showed repo access correctly scoped to `AYDXB09/Lumina-v2` with the right permissions — so it wasn't a revoked/narrowed GitHub App grant either.
+
+**Fix:** disconnect + reconnect the branch itself — Settings → Source → "Branch connected to production" → Disconnect, then reselect `main` (heavier than the auto-deploy toggle, which touches a flag but not the underlying webhook registration). A push immediately after started deploying within ~20 seconds. Root cause was never conclusively identified beyond "the webhook registration itself had gone stale, not just delayed" — if this recurs, check whether commits appear in Deployments history *at all* (even as pending) before assuming it's the same peak-hours pattern as the 2026-08-06 incident; if truly nothing appears despite retries, go straight to the branch reconnect rather than repeating empty-commit pushes.
+
 ### Known bug: `quiz_attempts.difficulty` CHECK constraint mismatch (2026-08-06, fixed)
 The original schema constrained `difficulty` to `easy/medium/hard`, but `backend/quiz/generator.py`'s `DIFFICULTY_BANDS` (and all AI-facing prompt language) uses `beginner/intermediate/advanced`. Every `/api/quiz/start` call failed with a `500` (`postgrest.exceptions.APIError: ... violates check constraint "quiz_attempts_difficulty_check"`) until caught live in production. Fixed by altering the constraint to match the actual application vocabulary — found via Railway's Deploy Logs tab, which shows full Python tracebacks, not just HTTP status codes.
 
@@ -186,7 +191,8 @@ The original schema constrained `difficulty` to `easy/medium/hard`, but `backend
 - [x] Railway deployed and live
 - [x] `/health` returns live provider/model from `get_active_config()` (not hardcoded env var)
 - [x] SSE heartbeat prevents proxy timeout
-- [x] Test login with Canvas API key on Railway — confirmed working with real Dwight student account
+- [x] Test login with Canvas API key on Railway — confirmed working with real Dwight student account (superseded by password auth, see below)
+- [x] Test signup + login + password reset with the new username/password flow on Railway — confirmed working end-to-end 2026-08-13, after fixing the signup CHECK-constraint 500, the shared-client RLS self-poisoning login bug, and the recovery-link hash-fragment/access_token parsing (all documented in Known Pitfalls)
 - [ ] Enable "Remove on Inactivity" in Railway service settings
 
 ### Local vs Railway workflow
@@ -211,18 +217,33 @@ Single Railway service, single public URL — no separate frontend hosting neede
 
 ## Authentication
 
-### Current: Canvas API Key
-Student generates their own Canvas API key (Account → Settings → New Access Token)
-and pastes it into Lumina. No admin approval needed.
+### Current: Username/Password (Supabase Auth) + one-time Canvas key
+**Switched 2026-08-13** from Canvas-key-as-login to real email/password accounts,
+so students never re-paste their Canvas key. Old flow (`POST /auth/apikey`) kept
+in the backend for backward compat only — not used by the current frontend.
 
-**Session flow:**
-1. Student submits Canvas URL + API key
-2. Backend validates via `/api/v1/users/self`
-3. Upserts school + user in Supabase, encrypts Canvas token (Fernet)
-4. Issues Lumina JWT (7 days) + refresh token (90 days, httpOnly cookie)
-5. Silent refresh on expiry — student never re-enters Canvas key
-6. Only re-prompts after 90 days inactive
-7. First login detected → background task auto-syncs + indexes all Canvas courses
+**Signup flow (once per student):**
+1. Student picks email + password AND pastes their Canvas API key (Canvas → Account
+   → Settings → New Access Token), submitted together on one signup screen
+2. Backend validates the Canvas key via `/api/v1/users/self` before creating anything
+3. Creates the Supabase Auth identity (`sb.auth.admin.create_user`), upserts school +
+   `users` profile linked via `users.auth_user_id`, encrypts Canvas token (Fernet)
+4. If anything fails after the auth user is created, it's rolled back
+   (`sb.auth.admin.delete_user`) — a failed signup never leaves an orphaned auth
+   identity that blocks retry with "already registered"
+5. Issues Lumina JWT (7 days) + refresh token (90 days, httpOnly cookie)
+6. First login detected → background task auto-syncs + indexes all Canvas courses
+
+**Login:** email + password → `POST /auth/login`. Canvas key is never touched again.
+
+**Password reset:** Settings → Account → "Reset password" (or "Forgot password?" on
+sign-in) → emails a recovery link → `/reset-password` → new password. See Known
+Pitfalls for two non-obvious bugs this flow hit in production (link shape, and a
+shared-client RLS self-poisoning bug that broke login right after a correct password).
+
+**Canvas key in Settings:** shown masked (last 4 chars) + expiry (usually "no expiry
+set" — Canvas tokens don't expire unless one was set at generation). Inline "replace
+key" flow (`PATCH /auth/canvas-key`) for when it's regenerated in Canvas.
 
 **Auth response key:** Always returns `canvas_role` (not `role`) — both login and `/auth/me` are consistent.
 Frontend isAdmin check falls back on both keys: `(user.canvas_role || user.role || "")`.
@@ -242,7 +263,8 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | File | Purpose |
 |---|---|
 | `backend/main.py` | FastAPI app, routes wired, SPA catch-all; no pre-warm (Gemini API replaces local model) |
-| `backend/auth/routes.py` | Canvas API key login, JWT, refresh, logout; first-login auto-index |
+| `backend/auth/routes.py` | Signup/login (Supabase Auth password), forgot/reset-password, PATCH Canvas key, JWT, refresh, logout; first-login auto-index; legacy `POST /auth/apikey` kept for compat |
+| `backend/db/client.py` | `get_supabase()` service-role singleton; `new_auth_client()` — throwaway client for `sign_in_with_password`/`verify_otp`, see Known Pitfalls |
 | `backend/auth/middleware.py` | JWT dependency, role guards |
 | `backend/auth/canvas.py` | Canvas token validation + retrieval abstraction |
 | `backend/auth/encrypt.py` | Fernet encryption for Canvas tokens at rest |
@@ -280,7 +302,7 @@ SettingsModal shows "Admin KB" tab for matching roles.
 | `frontend/src/components/econ-svgs/` | 4 pure React SVG diagram components, theme-aware via CSS variables |
 | `frontend/src/components/ChatMessage.jsx` | Parses widget markers from AI output via parseSegments() |
 | `backend/config.py` | All env vars |
-| `frontend/src/App.jsx` | Auth gate → MainLayout; auto-selects first course; chatSendRef for RightPanel→Chat |
+| `frontend/src/App.jsx` | Auth gate → MainLayout; `/reset-password` route (outside auth gate); auto-selects `DEFAULT_COURSE_NAME` course; chatSendRef for RightPanel→Chat |
 | `frontend/src/contexts/AuthContext.jsx` | In-memory JWT, cookie refresh, authFetch |
 | `frontend/src/contexts/SettingsContext.jsx` | User settings with defaults incl. calendarFetchWindow, calendarSyncFrequency |
 | `frontend/src/components/LoginScreen.jsx` | Canvas URL + API key form |
@@ -300,10 +322,12 @@ SettingsModal shows "Admin KB" tab for matching roles.
 ### Core Identity
 - `schools` — id, name, canvas_url, created_at
 - `users` — id, canvas_user_id, school_id, name, email, avatar_url, canvas_role,
-  auth_method, canvas_access_token (encrypted), canvas_refresh_token,
-  canvas_token_expires_at, last_active_at,
-  **calendar_sources JSONB** (list of {id, label, url, auto} objects)
-- `sessions` — id, user_id, refresh_token (hashed), auth_method, expires_at,
+  auth_method (`api_key | oauth | lti | password`), canvas_access_token (encrypted),
+  canvas_refresh_token, canvas_token_expires_at, last_active_at,
+  **auth_user_id** (FK → `auth.users.id`, unique, `ON DELETE SET NULL` — links to the
+  Supabase Auth identity for password auth), **canvas_key_last4** (masked display in
+  Settings), **calendar_sources JSONB** (list of {id, label, url, auto} objects)
+- `sessions` — id, user_id, refresh_token (hashed), auth_method (`api_key | oauth | lti | password`), expires_at,
   last_used_at, user_agent
 - `enrollments` — user_id, course_id, canvas_role, synced_at
 - `parent_links` — id, student_id, parent_email, consent_status,
@@ -460,12 +484,13 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - Access token in memory only (never localStorage)
 
 ### Email
-- Resend for all transactional email (both architectures)
+- **Auth emails (password reset, signup confirmation):** Supabase Auth's own built-in mailer, via `sb.auth.reset_password_for_email()` — sends over HTTPS (Supabase's API), not raw SMTP. This matters: **Railway filters outbound SMTP (port 587) entirely** — confirmed 2026-08-13 by a `aiosmtplib.send()` connect() that just hung until timeout — so any raw-SMTP provider (Gmail, or Resend's SMTP mode) cannot work from this host, only Resend's HTTPS API can. Supabase's default mailer is rate-limited (a few emails/hour on free tier) and was hit hard during testing; unblocked by configuring **custom SMTP in Supabase's own dashboard** (Authentication → Settings → SMTP Settings) pointed at a Gmail app password — Supabase's servers do the sending there, not Railway, so the port-587 block doesn't apply. Gmail as SMTP triggers a "not designed for transactional email" warning in Supabase's UI — expected, safe to save anyway, fine for pilot volume.
+- **Other transactional email** (parent consent, reports — not yet built): `providers/email/` — `ResendEmailProvider` (HTTP API, will work from Railway once a real Resend account + verified domain exist) and `GmailSMTPProvider` (kept for reference/local dev only — confirmed non-functional from Railway, see above). Factory (`providers/email/__init__.py`) prefers Gmail when configured, falls back to Resend.
 - AWS SES excluded — production access approval unreliable
 
 ### Frontend — Sidebar
 - No "All Courses" option — courses are project workspaces, not a global feed
-- First course auto-selected on load: `setSelectedCourse(prev => prev ?? list[0])`
+- First course auto-selected on load, preferring an exact name match on `DEFAULT_COURSE_NAME` (`App.jsx`) over whatever Canvas lists first — currently `"IB DP Mathematics: Analysis and Approaches HL I 2025-26"`. Falls back to `list[0]` if that course isn't enrolled.
 
 ### Frontend — ChatView
 - **Thinking indicator:** When `loading && !streamingText` → shows `"Thinking… 2.4s"` (live counter)
@@ -537,6 +562,9 @@ Infers subject, grade levels, and doc_type automatically from filenames:
 - **`.single()` vs `.maybe_single()` — check every cold-start query, not just the obvious ones:** Same underlying bug (`.single()` throws `PGRST116` on zero rows instead of returning `None`) has now been found in `studyplan/routes.py`, `quiz/routes.py`, AND `mindmap/routes.py` (`get_mindmap`'s `mind_maps` lookup) — the last one pre-dated this session and had apparently never been exercised against a real cold-start course before. Any new `.select(...).eq(...).single()` or `.maybe_single()` call needs the `if result and result.data` guard (see the `.maybe_single()` entry above) — `.single()` additionally needs to become `.maybe_single()` in the first place whenever zero rows is a valid, expected outcome (not just an error state).
 - **KaTeX SVG output must never be handed to `marked.parse()` directly:** `\vec{}` (and other KaTeX constructs) render via inline `<svg><path>` elements. `ChatMessage.jsx` used to inject that rendered HTML into the raw markdown string *before* calling `marked.parse()` — `marked`'s tokenizer, especially its table-cell splitter, re-parses whatever text it receives, and re-parsing already-rendered SVG markup corrupted it: the `<path>`'s `d` attribute value ended up dumped as visible garbage text (e.g. `H213l-171-1c-8.667-6-13...z"/>`) in the cell. Only showed up inside markdown tables, not prose, because `marked`'s table parser is far more aggressive about re-tokenizing cell content than paragraph text. Fixed (2026-08-06) with the standard placeholder-token pattern: `processMath()` now substitutes an inert alphanumeric-only token for each math span before `marked.parse()` runs, then `restoreMath()` swaps the real KaTeX HTML back in afterwards — `marked` never sees real HTML/SVG content at all. Confirmed root cause by pulling the raw AI response straight from `chat_messages` in Supabase (completely clean `$\vec{F_1}$` LaTeX, no corruption at the source) before touching any frontend code.
 - **MindMapView fit-to-screen was clamped to `MIN_SCALE` (0.25), breaking on wide trees:** `getDefaultVp()`'s automatic fit-to-screen calculation clamped its computed scale to the same `MIN_SCALE` used for manual zoom (scroll wheel, +/- buttons). `MIN_SCALE` is a reasonable floor for manual interaction (don't let a user zoom out to nothing) but wrong for the *fit* calculation — a wide tree (e.g. 40 leaf nodes in one category, the per-category cap in `mindmap/routes.py`) can genuinely need a scale smaller than 0.25 just to fit in the panel. Clamping the fit to 0.25 forced an oversized scale that pushed most of the tree off-screen regardless of the 88% fit margin. Fixed (2026-08-06) by giving the fit calculation its own much smaller floor (`FIT_FLOOR = 0.02`), used purely as a divide-by-zero/Infinity guard — manual zoom still respects `MIN_SCALE` as before, unaffected.
+- **`get_supabase()` is a process-wide singleton — NEVER call `sign_in_with_password()` or `verify_otp()` on it (found + fixed 2026-08-13):** Both calls establish an end-user session, and `gotrue-py`'s session save propagates to the shared client's Postgrest auth header — every `.table()` call on that same client afterward runs as that end user, not the service role. Since every table has RLS enabled with zero policies (deny-all — see RLS Posture below), the very next query silently returns 0 rows instead of erroring. This broke `/auth/login` right after a *correct* password: Supabase itself confirmed the password (`200 OK` on `/auth/v1/token`), then the immediate `users` lookup on the now-poisoned client came back empty, producing a false "No Lumina account found for this login". Worse, because the client is a singleton, this could transiently poison whatever *other* request reused it next. Confirmed via Railway logs cross-checked against a direct SQL query showing the row matching perfectly the whole time. Fixed with `db/client.py`'s `new_auth_client()` — a cheap throwaway client used only for calls that establish a session; `get_supabase()` is never touched by them. Any future code calling `sb.auth.sign_in_with_password`/`verify_otp` on the shared client will reintroduce this.
+- **Supabase's recovery link shape depends on the project's Auth flow — don't assume `token_hash`:** This project's actual recovery email links to Supabase's own `/auth/v1/verify` endpoint (legacy verify flow), which validates server-side and redirects with `#access_token=...&refresh_token=...&type=recovery` already issued — not `#token_hash=...&type=recovery` like the newer OTP-style flow. Confirmed against a real email link (2026-08-13). `/auth/reset-password` accepts either `token_hash` (→ `verify_otp`) or `access_token` (→ `get_user`) for this reason; the frontend hash-fragment parser (`App.jsx`) checks for both. If a future Supabase project/flow-setting change produces `token_hash` instead, both paths already work — but don't delete the `access_token` path without checking which one Supabase is actually sending first.
+- **Railway auto-deploy can fail two different ways — check which before "fixing" it:** (1) **Transient stall** (peak-hours pattern, several prior incidents) — commits eventually show up in Deployments history, a manual Redeploy or a trivial push unsticks it. (2) **Dead webhook connection** (2026-08-13, ~4 days stuck) — commits never appear in history at all, not even as pending; empty-commit pushes and toggling "Auto deploys when pushed to GitHub" off/on both do nothing; a manual Redeploy still works (proves the build pipeline itself is healthy) but only rebuilds the *same* stale commit. Diagnose by checking whether GitHub's Railway App installation still has repo access (`github.com/settings/installations` → Railway App → Configure, needs a sudo-mode email re-verification to view) — if access looks fine there too, the fix is **disconnect + reconnect the branch** in Railway Settings → Source → "Branch connected to production" (not just the toggle) — this re-registers the webhook and a subsequent push started deploying within ~20 seconds, versus 4 days of nothing before.
 
 ---
 
@@ -574,7 +602,7 @@ Dwight domiciled in NY + FL. FERPA does not apply (private school, no federal fu
 
 ### Phase 1 — Foundation ✅ COMPLETE
 - [x] Supabase schema (18 tables + calendar_cache + shared_materials, all migrations applied)
-- [x] Canvas API Key auth (POST /auth/apikey, /auth/me, /auth/refresh, /auth/logout)
+- [x] Canvas API Key auth (POST /auth/apikey, /auth/me, /auth/refresh, /auth/logout) — superseded 2026-08-13 by username/password (Supabase Auth) + one-time Canvas key, see Authentication section
 - [x] Provider abstraction (K2, OpenRouter, Anthropic, NVIDIA NIM)
 - [x] Canvas sync (courses, modules, pages, assignments, announcements, quizzes)
 - [x] pgvector RAG (index_chunks + student_materials, HNSW, match RPCs)
