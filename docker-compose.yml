@@ -1,0 +1,46 @@
+version: "3.9"
+
+# ------------------------------------------------------------------ #
+# Local development stack                                            #
+# Usage:  docker compose up --build                                  #
+#                                                                    #
+# For hot-reload dev:                                                #
+#   cd frontend && npm run dev        (Vite on :5173)               #
+#   cd backend  && uvicorn main:app --reload  (FastAPI on :8000)    #
+# ------------------------------------------------------------------ #
+
+services:
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Copy from backend/.env.example and fill in real values
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - AI_PROVIDER=${AI_PROVIDER:-k2}
+      - K2_API_KEY=${K2_API_KEY}
+      - K2_API_URL=${K2_API_URL:-https://api.k2think.ai/v1/chat/completions}
+      - K2_MODEL=${K2_MODEL:-MBZUAI-IFM/K2-Think-v2}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-MBZUAI-IFM/K2-Think-v2}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-5}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - CANVAS_BASE_URL=${CANVAS_BASE_URL:-https://dwight.instructure.com}
+      - PORT=8000
+    volumes:
+      # Mount backend source for live reload in dev
+      - ./backend:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

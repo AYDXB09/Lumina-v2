@@ -1,0 +1,41 @@
+name: Supabase keep-alive
+
+# Free-tier Supabase projects auto-pause after inactivity, which took down
+# login/signup/refresh entirely (2026-09-17 incident). A 3-day cadence still
+# let the project pause again by 2026-09-29 despite two confirmed successful
+# pings (9/22, 9/25) only days before -- either Supabase's real threshold is
+# shorter than the documented ~7 days, or a plain RLS-deny-all SELECT via the
+# anon key doesn't count as "activity" the way a real request does. Root
+# cause unconfirmed (Supabase doesn't expose the reasoning) -- daily is the
+# blunt fix: whatever the true window is, this stays inside it.
+on:
+  schedule:
+    - cron: "0 12 * * *"  # every day at 12:00 UTC
+  workflow_dispatch:        # allow a manual run from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Supabase REST API
+        run: |
+          # --retry* guards against a transient DNS/network blip on the
+          # runner itself (curl exit 6, "Couldn't resolve host") being
+          # mistaken for Supabase actually being down -- this is exactly
+          # what happened on the 2026-09-28 run.
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            --retry 3 --retry-delay 5 --retry-all-errors \
+            "https://tnholnjrhnnqytmpqacb.supabase.co/rest/v1/schools?select=id&limit=1" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+          echo "Supabase REST responded with HTTP $status"
+          if [ "$status" -ge 500 ]; then
+            echo "::error::Supabase keep-alive ping failed with HTTP $status"
+            exit 1
+          fi
+        env:
+          # Legacy anon key — publishable by design, safe to embed directly.
+          # RLS is deny-all for this role (every table has RLS enabled with no
+          # policies), so this query returns 0 rows either way; only reaching
+          # the DB matters.
+          SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRuaG9sbmpyaG5ucXl0bXBxYWNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4NzU0OTgsImV4cCI6MjA5MzQ1MTQ5OH0.-C4Q55B0GXjbKUB8BF_bE9bmPSatLPEZQeNWchcHdW0"

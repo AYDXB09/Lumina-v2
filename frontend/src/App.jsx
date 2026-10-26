@@ -1,0 +1,223 @@
+/**
+ * App.jsx — root component.
+ *
+ * Auth gate → LoginScreen or MainLayout.
+ * MainLayout: Sidebar + ChatView + RightPanel (when open).
+ * SettingsProvider wraps everything so all components can read/write settings.
+ */
+
+import React, { useState, useEffect, useRef } from "react";
+import { useAuth } from "./contexts/AuthContext.jsx";
+import { SettingsProvider } from "./contexts/SettingsContext.jsx";
+import { useIsMobile } from "./hooks/useIsMobile.js";
+import LoginScreen from "./components/LoginScreen.jsx";
+import ResetPasswordScreen from "./components/ResetPasswordScreen.jsx";
+import LegalPage from "./components/LegalPage.jsx";
+import Sidebar from "./components/Sidebar.jsx";
+import ChatView from "./components/ChatView.jsx";
+import RightPanel from "./components/RightPanel.jsx";
+import SettingsModal from "./components/SettingsModal.jsx";
+import { fetchCourses, syncCourses } from "./api.js";
+
+// Course auto-selected on first load, by exact Canvas course name match.
+// Falls back to the first course in the list if this one isn't enrolled.
+const DEFAULT_COURSE_NAME = "IB DP Mathematics: Analysis and Approaches HL I 2025-26";
+
+function LoadingSpinner() {
+  return (
+    <div style={{
+      height: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "var(--color-text-muted)",
+      fontSize: "14px",
+      background: "var(--color-bg)",
+    }}>
+      Loading…
+    </div>
+  );
+}
+
+function MainLayout() {
+  const { authFetch } = useAuth();
+  const isMobile = useIsMobile();
+
+  const [courses, setCourses]               = useState([]);
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [syncing, setSyncing]               = useState(false);
+  const [sidebarOpen, setSidebarOpen]       = useState(!isMobile);
+  const [showRightPanel, setShowRightPanel] = useState(false);
+  const [showSettings, setShowSettings]     = useState(false);
+  const chatSendRef = useRef(null);  // receives fireQuickAction from ChatView
+
+  useEffect(() => { loadCourses(); }, []);
+  useEffect(() => { setShowRightPanel(false); }, [selectedCourse]);
+
+  const loadCourses = async () => {
+    try {
+      const data = await fetchCourses(authFetch);
+      const list = data.courses ?? [];
+      setCourses(list);
+      // Auto-select first course if nothing is selected, preferring the
+      // default course below over whatever Canvas happens to list first.
+      if (list.length > 0) {
+        const preferred = list.find(c => c.name === DEFAULT_COURSE_NAME) ?? list[0];
+        setSelectedCourse(prev => prev ?? preferred);
+      } else {
+        handleSync();
+      }
+    } catch (err) {
+      console.error("Failed to load courses:", err);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await syncCourses(authFetch);
+      await loadCourses();
+    } catch (err) {
+      console.error("Sync failed:", err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleToggleSidebar = () => {
+    setSidebarOpen(p => !p);
+    // On mobile, close right panel when sidebar opens (avoid double overlay)
+    if (isMobile && !sidebarOpen) setShowRightPanel(false);
+  };
+
+  const handleToggleRightPanel = () => {
+    setShowRightPanel(p => !p);
+    // On mobile, close sidebar when right panel opens
+    if (isMobile && !showRightPanel) setSidebarOpen(false);
+  };
+
+  return (
+    <div style={styles.layout}>
+      {/* ---- Mobile backdrop for sidebar ---- */}
+      {isMobile && sidebarOpen && (
+        <div
+          style={styles.mobileBackdrop}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* ---- Mobile backdrop for right panel ---- */}
+      {isMobile && showRightPanel && (
+        <div
+          style={styles.mobileBackdrop}
+          onClick={() => setShowRightPanel(false)}
+        />
+      )}
+
+      {/* ---- Left: Sidebar ---- */}
+      <Sidebar
+        open={sidebarOpen}
+        courses={courses}
+        selectedCourse={selectedCourse}
+        onSelectCourse={(c) => { setSelectedCourse(c); if (isMobile) setSidebarOpen(false); }}
+        onSync={handleSync}
+        syncing={syncing}
+        onToggle={handleToggleSidebar}
+        onOpenSettings={() => setShowSettings(true)}
+      />
+
+      {/* ---- Centre: Chat ---- */}
+      <div style={styles.centre}>
+        <ChatView
+          key={selectedCourse?.id ?? "all"}
+          course={selectedCourse}
+          onToggleSidebar={handleToggleSidebar}
+          onToggleRightPanel={handleToggleRightPanel}
+          rightPanelOpen={showRightPanel}
+          syncing={syncing}
+          registerSend={fn => { chatSendRef.current = fn; }}
+        />
+      </div>
+
+      {/* ---- Right: Assignments + Mind Map panel ---- */}
+      {showRightPanel && selectedCourse && (
+        <RightPanel
+          course={selectedCourse}
+          onClose={() => setShowRightPanel(false)}
+          onAskAI={prompt => {
+            chatSendRef.current?.(prompt);
+            setShowRightPanel(false); // close panel, show the answer in chat
+          }}
+        />
+      )}
+
+      {/* ---- Settings modal ---- */}
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
+      )}
+    </div>
+  );
+}
+
+export default function App() {
+  const { user, loading } = useAuth();
+
+  // Reset-password link lands here regardless of auth state — the user
+  // isn't signed in yet at this point.
+  if (window.location.pathname === "/reset-password") {
+    // Supabase's recovery link lands here in one of two shapes depending on
+    // the project's Auth flow, both via the URL hash fragment not the query
+    // string (confirmed by the earlier ".../dashboard#error=access_denied&
+    // ..." redirect when Site URL was misconfigured):
+    //   - newer OTP-style verify: #token_hash=...&type=recovery
+    //   - legacy verify flow (what this project actually uses, confirmed
+    //     2026-08-13 against a real email link -- Supabase's own
+    //     /auth/v1/verify endpoint validates server-side first, then
+    //     redirects here with a session already issued):
+    //     #access_token=...&refresh_token=...&type=recovery
+    // Query string checked too as a fallback in case that ever changes.
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const searchParams = new URLSearchParams(window.location.search);
+    const tokenHash = hashParams.get("token_hash") ?? searchParams.get("token_hash");
+    const accessToken = hashParams.get("access_token") ?? searchParams.get("access_token");
+    const hashError = hashParams.get("error_description") ?? searchParams.get("error_description");
+    return <ResetPasswordScreen tokenHash={tokenHash} accessToken={accessToken} linkError={hashError} />;
+  }
+
+  // Legal pages are public: the sign-up form links to them before an account exists.
+  const path = window.location.pathname.replace(/\/+$/, "");
+  if (path === "/terms")   return <LegalPage page="terms" />;
+  if (path === "/privacy") return <LegalPage page="privacy" />;
+
+  if (loading) return <LoadingSpinner />;
+  return (
+    <SettingsProvider>
+      {!user ? <LoginScreen /> : <MainLayout />}
+    </SettingsProvider>
+  );
+}
+
+const styles = {
+  layout: {
+    display: "flex",
+    height: "100vh",
+    width: "100vw",
+    overflow: "hidden",
+    background: "var(--color-bg)",
+    position: "relative",
+  },
+  centre: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    minWidth: 0,
+  },
+  mobileBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.4)",
+    zIndex: 130,
+    animation: "fadeInUp 0.15s ease",
+  },
+};

@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Environment — NEVER commit these
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# MCP config — holds SUPABASE_ACCESS_TOKEN
+.mcp.json
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Supabase / ChromaDB
+chroma_data/
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Personal/internal presentation files — not part of the codebase
+/Lumina_K2ThinkV2_Access_Request.pptx
+/Lumina_Slides.pdf
+/Lumina_v2_Security_Architecture.pdf
+
+# Internal planning docs — not for public repo, kept locally only
+docs/internal/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.sw?
+
+# Logs
+*.log
+logs/
+vite-dev.err
+vite-dev.out
+backend-run.err
+backend-run.out
+.claude/worktrees/
+
+# Claude Code per-machine settings: saved shell commands can embed API keys
+.claude/settings.local.json
