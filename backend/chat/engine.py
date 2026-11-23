@@ -40,6 +40,12 @@ def _sse(payload: dict | str) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+# Single source of truth: the request code (which decides whether `tools` are
+# sent) and the system-prompt note (which tells the model whether it has any)
+# must agree, or the model writes its native tool-call markup as plain text.
+MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama", "k2")
+
+
 # ------------------------------------------------------------------ #
 # OpenAI-compatible engine (K2 + OpenRouter)                         #
 # ------------------------------------------------------------------ #
@@ -80,7 +86,6 @@ async def _run_openai_compat(
     # 1. Model doesn't support OpenAI-style function calling (e.g. DeepSeek, Llama)
     # 2. Course context is already injected in system prompt (course_id present)
     #    — avoids extra API calls for common questions
-    MODELS_WITHOUT_TOOL_SUPPORT = ("deepseek", "llama", "k2")
     model_name = model.lower()
     # Disable tool loop when:
     # 1. Model doesn't support OpenAI function calling (DeepSeek, Llama)
@@ -309,8 +314,12 @@ async def _build_system_prompt(user_id: str, course_id: str | None, user_query: 
     today = now.strftime("%A, %B %d, %Y")
     from providers.ai import get_active_config as _get_active_config
     _, model_name = _get_active_config()
-    _no_tool_models = ("deepseek", "llama")
-    has_tools = not any(m in model_name.lower() for m in _no_tool_models)
+    # Mirrors _run_openai_compat: tools are only passed when the model supports
+    # them AND no course is selected (course context is pre-injected instead).
+    has_tools = (
+        not any(m in model_name.lower() for m in MODELS_WITHOUT_TOOL_SUPPORT)
+        and not course_id
+    )
     tool_note = (
         "You have access to tools: get_assignments, get_announcements, search_course_content."
         if has_tools else
