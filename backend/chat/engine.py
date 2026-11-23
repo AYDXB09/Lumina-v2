@@ -107,9 +107,15 @@ async def _run_openai_compat(
         )
 
         first_token = True
+        finish_reason = None
+        error_message = None
         try:
             async for chunk in _aiter_with_timeout(stream.__aiter__(), TOKEN_TIMEOUT):
-                delta = chunk.choices[0].delta.content
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                finish_reason = choice.finish_reason or finish_reason
+                delta = choice.delta.content
                 if delta:
                     if first_token:
                         logger.info("ttft=%.3fs model=%s", _time.monotonic() - t_api, model)
@@ -117,8 +123,17 @@ async def _run_openai_compat(
                     yield _sse({"type": "content", "text": delta})
         except asyncio.TimeoutError:
             logger.error("Stream stalled — no token for %ds (model=%s)", TOKEN_TIMEOUT, model)
+            error_message = f"The AI model stopped responding (no output for {TOKEN_TIMEOUT}s)."
         except Exception as e:
             logger.error("Stream error mid-response: %s", e)
+            error_message = f"The AI model returned an error: {e}"
+        # A reply that ended with no text used to look identical to success
+        # (blank bubble, no message) -- surface it instead.
+        if error_message is None and first_token:
+            logger.error("Stream ended with no text (model=%s finish_reason=%s)", model, finish_reason)
+            error_message = f"The AI model returned an empty reply (finish_reason={finish_reason})."
+        if error_message:
+            yield _sse({"type": "error", "message": error_message})
         yield _sse("[DONE]")
         return
 

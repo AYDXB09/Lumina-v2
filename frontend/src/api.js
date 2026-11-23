@@ -270,20 +270,21 @@ export async function streamChat(authFetch, messages, opts = {}, onChunk, onTool
       const raw = line.slice(5).trim();
       if (raw === "[DONE]") return full;
 
+      let event;
       try {
-        const event = JSON.parse(raw);
-        if (event.type === "session_id") {
-          onSessionId?.(event.session_id);
-        } else if (event.type === "content" && event.text) {
-          full += event.text;
-          onChunk?.(event.text);
-        } else if (event.type === "tool_call") {
-          onToolCall?.(event);
-        } else if (event.type === "error") {
-          throw new Error(event.message ?? "AI provider error");
-        }
+        event = JSON.parse(raw);
       } catch {
-        // Ignore malformed chunks
+        continue; // Ignore malformed chunks
+      }
+      if (event.type === "session_id") {
+        onSessionId?.(event.session_id);
+      } else if (event.type === "content" && event.text) {
+        full += event.text;
+        onChunk?.(event.text);
+      } else if (event.type === "tool_call") {
+        onToolCall?.(event);
+      } else if (event.type === "error") {
+        throw new Error(event.message ?? "AI provider error");
       }
     }
   }
