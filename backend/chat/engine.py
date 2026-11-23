@@ -64,6 +64,14 @@ async def _run_openai_compat(
 
     history = [{"role": "system", "content": system}] + _clean_messages(messages)
 
+    # IFM's reasoning models reject (HTTP 422) any assistant turn in the history
+    # that lacks a reasoning field. We only keep the visible text of past
+    # replies, so replay an empty trace -- the docs state "" is a valid value.
+    if (config.AI_PROVIDER or "").lower() == "k2":
+        for m in history:
+            if m["role"] == "assistant":
+                m["reasoning_content"] = ""
+
     from openai import AsyncOpenAI
     client: AsyncOpenAI = provider._client
     model = provider._model
